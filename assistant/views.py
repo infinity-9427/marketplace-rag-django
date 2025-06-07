@@ -1,11 +1,7 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from .rag import build_rag_chain
-from django.shortcuts import render
+from .rag import build_rag_chain, validate_system_health
 import traceback
-
-def index(request):
-    return render(request, "index.html")
 
 @api_view(['GET'])
 def ask_question(request):
@@ -62,8 +58,6 @@ def ask_question(request):
 def system_status(request):
     """Check system health and status"""
     try:
-        from .rag import validate_system_health, build_rag_chain
-        
         health_status = validate_system_health()
         rag_status = build_rag_chain() is not None
         
