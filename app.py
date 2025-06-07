@@ -1,216 +1,365 @@
 import os
-from flask import Flask, request, jsonify
+import logging
+from datetime import datetime
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
-from assistant.rag import get_answer, build_rag_chain, test_super_accurate_rag
+from typing import Optional, Dict, Any
+
+from config import config
+from data_handler import DataSource
+from assistant.enhanced_rag import get_rag_system, get_answer
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Configure CORS with specific settings
+# Enhanced CORS configuration
 CORS(app, 
-     origins=['http://localhost:3000'],
+     origins=['http://localhost:3000', 'http://localhost:3001'],
      methods=['GET', 'POST', 'OPTIONS'],
-     allow_headers=['Content-Type', 'Authorization'])
+     allow_headers=['Content-Type', 'Authorization', 'X-Requested-With'],
+     supports_credentials=True)
 
-# Global variable to store the RAG chain
-rag_chain = None
+# Request tracking middleware
+@app.before_request
+def before_request():
+    g.start_time = datetime.now()
+    g.request_id = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
 
-def initialize_rag():
-    """Initialize the RAG system once at startup"""
-    global rag_chain
-    if rag_chain is None:
-        print("🤖 Initializing RAG System...")
-        rag_chain = build_rag_chain()
-        if rag_chain:
-            print("✅ RAG System Ready!")
-        else:
-            print("❌ Failed to initialize RAG system")
-    return rag_chain is not None
+@app.after_request
+def after_request(response):
+    duration = (datetime.now() - g.start_time).total_seconds()
+    logger.info(f"Request {g.request_id} completed in {duration:.3f}s - {response.status_code}")
+    return response
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    logger.error(f"Unhandled exception in request {g.request_id}: {str(e)}")
+    return jsonify({
+        "error": "Internal server error",
+        "status": "error",
+        "request_id": g.request_id
+    }), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint"""
-    return jsonify({
-        "status": "healthy",
-        "message": "RAG API is running",
-        "initialized": rag_chain is not None
-    })
+    """Comprehensive health check endpoint"""
+    try:
+        rag_system = get_rag_system()
+        if rag_system:
+            health_status = rag_system.health_check()
+            
+            # Add system info
+            health_status.update({
+                "request_id": g.request_id,
+                "config_valid": config.validate(),
+                "system_info": {
+                    "python_version": f"{os.sys.version_info.major}.{os.sys.version_info.minor}",
+                    "environment": os.getenv("ENVIRONMENT", "development")
+                }
+            })
+            
+            status_code = 200 if health_status["status"] == "healthy" else 503
+            return jsonify(health_status), status_code
+        else:
+            return jsonify({
+                "status": "unhealthy",
+                "error": "RAG system not initialized",
+                "request_id": g.request_id
+            }), 503
+            
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            "status": "error",
+            "error": str(e),
+            "request_id": g.request_id
+        }), 500
 
 @app.route('/api/ask', methods=['POST'])
 def ask_question_post():
-    """POST endpoint for asking questions"""
+    """Enhanced POST endpoint for asking questions"""
     try:
-        # Check if RAG system is initialized
-        if not initialize_rag():
+        # Validate request
+        if not request.is_json:
             return jsonify({
-                "error": "RAG system not initialized. Check your .env file and Google API key.",
-                "status": "error"
-            }), 500
-        
-        # Get question from request body
-        data = request.get_json()
-        if not data or 'question' not in data:
-            return jsonify({
-                "error": "Missing 'question' in request body",
-                "status": "error"
+                "error": "Content-Type must be application/json",
+                "status": "error",
+                "request_id": g.request_id
             }), 400
         
-        question = data['question'].strip()
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "error": "Invalid JSON in request body",
+                "status": "error",
+                "request_id": g.request_id
+            }), 400
+        
+        # Extract question
+        question = data.get('question', '').strip()
         if not question:
             return jsonify({
-                "error": "Question cannot be empty",
-                "status": "error"
+                "error": "Missing or empty 'question' field",
+                "status": "error",
+                "request_id": g.request_id
             }), 400
         
-        # Get answer from RAG system
-        result = get_answer(question)
+        # Extract optional data source
+        data_source = None
+        if 'data_source' in data:
+            ds_config = data['data_source']
+            if isinstance(ds_config, str):
+                data_source = ds_config
+            elif isinstance(ds_config, dict):
+                data_source = DataSource(
+                    source_type=ds_config.get('type', 'file'),
+                    location=ds_config.get('location', ''),
+                    headers=ds_config.get('headers'),
+                    auth=ds_config.get('auth'),
+                    cache_duration=ds_config.get('cache_duration', 3600)
+                )
         
-        if "error" in result:
-            return jsonify({
-                "error": result['error'],
-                "status": "error"
-            }), 500
+        # Get answer
+        result = get_answer(question, data_source)
         
-        # Return successful response
-        return jsonify({
-            "question": question,
-            "answer": result['answer'],
-            "sources": result['sources'],
-            "response_type": result['response_type'],
-            "intent": result.get('intent', {}),
-            "status": "success"
+        # Add metadata
+        result.update({
+            "request_id": g.request_id,
+            "timestamp": datetime.now().isoformat(),
+            "question": question
         })
         
+        return jsonify(result)
+        
     except Exception as e:
+        logger.error(f"Error in ask_question_post: {e}")
         return jsonify({
             "error": f"Internal server error: {str(e)}",
-            "status": "error"
+            "status": "error",
+            "request_id": g.request_id
         }), 500
 
 @app.route('/api/ask', methods=['GET'])
 def ask_question_get():
-    """GET endpoint for asking questions (alternative to POST)"""
+    """Enhanced GET endpoint for asking questions"""
     try:
-        # Check if RAG system is initialized
-        if not initialize_rag():
-            return jsonify({
-                "error": "RAG system not initialized. Check your .env file and Google API key.",
-                "status": "error"
-            }), 500
-        
-        # Get question from query parameter
         question = request.args.get('q', '').strip()
         if not question:
             return jsonify({
                 "error": "Missing 'q' query parameter",
-                "status": "error"
+                "status": "error",
+                "request_id": g.request_id
             }), 400
         
-        # Get answer from RAG system
-        result = get_answer(question)
+        # Optional data source from query params
+        data_source = None
+        ds_type = request.args.get('source_type')
+        ds_location = request.args.get('source_location')
         
-        if "error" in result:
-            return jsonify({
-                "error": result['error'],
-                "status": "error"
-            }), 500
+        if ds_type and ds_location:
+            data_source = DataSource(
+                source_type=ds_type,
+                location=ds_location
+            )
         
-        # Return successful response
-        return jsonify({
-            "question": question,
-            "answer": result['answer'],
-            "sources": result['sources'],
-            "response_type": result['response_type'],
-            "intent": result.get('intent', {}),
-            "status": "success"
+        result = get_answer(question, data_source)
+        
+        result.update({
+            "request_id": g.request_id,
+            "timestamp": datetime.now().isoformat(),
+            "question": question
         })
         
+        return jsonify(result)
+        
     except Exception as e:
+        logger.error(f"Error in ask_question_get: {e}")
         return jsonify({
             "error": f"Internal server error: {str(e)}",
-            "status": "error"
+            "status": "error",
+            "request_id": g.request_id
+        }), 500
+
+@app.route('/api/data-source', methods=['POST'])
+def update_data_source():
+    """Update data source endpoint"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "error": "Invalid JSON in request body",
+                "status": "error",
+                "request_id": g.request_id
+            }), 400
+        
+        # Create data source
+        if isinstance(data, str):
+            data_source = DataSource(source_type='file', location=data)
+        else:
+            data_source = DataSource(
+                source_type=data.get('type', 'file'),
+                location=data.get('location', ''),
+                headers=data.get('headers'),
+                auth=data.get('auth'),
+                cache_duration=data.get('cache_duration', 3600)
+            )
+        
+        # Update RAG system
+        rag_system = get_rag_system()
+        if rag_system:
+            success = rag_system.update_data_source(data_source)
+            
+            if success:
+                return jsonify({
+                    "message": "Data source updated successfully",
+                    "status": "success",
+                    "data_source": {
+                        "type": data_source.source_type,
+                        "location": data_source.location
+                    },
+                    "request_id": g.request_id
+                })
+            else:
+                return jsonify({
+                    "error": "Failed to update data source",
+                    "status": "error",
+                    "request_id": g.request_id
+                }), 500
+        else:
+            return jsonify({
+                "error": "RAG system not initialized",
+                "status": "error",
+                "request_id": g.request_id
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error updating data source: {e}")
+        return jsonify({
+            "error": f"Failed to update data source: {str(e)}",
+            "status": "error",
+            "request_id": g.request_id
+        }), 500
+
+@app.route('/api/performance', methods=['GET'])
+def get_performance_stats():
+    """Get performance statistics"""
+    try:
+        rag_system = get_rag_system()
+        if rag_system:
+            stats = rag_system.get_performance_stats()
+            stats.update({
+                "request_id": g.request_id,
+                "timestamp": datetime.now().isoformat()
+            })
+            return jsonify(stats)
+        else:
+            return jsonify({
+                "error": "RAG system not initialized",
+                "status": "error",
+                "request_id": g.request_id
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error getting performance stats: {e}")
+        return jsonify({
+            "error": str(e),
+            "status": "error",
+            "request_id": g.request_id
         }), 500
 
 @app.route('/api/test', methods=['GET'])
 def run_tests():
-    """Test endpoint to verify RAG system functionality"""
+    """Enhanced test endpoint"""
     try:
-        if not initialize_rag():
-            return jsonify({
-                "error": "RAG system not initialized",
-                "status": "error"
-            }), 500
-        
-        # Run tests
         test_results = []
         test_questions = [
             "What headphones do you have?",
             "Tell me about wireless products",
             "What's the most expensive item?",
-            "Compare gaming products"
+            "Compare gaming products",
+            "Show me products under $100"
         ]
         
         for question in test_questions:
+            start_time = datetime.now()
             result = get_answer(question)
+            duration = (datetime.now() - start_time).total_seconds()
+            
             test_results.append({
                 "question": question,
                 "success": "error" not in result,
-                "answer": result.get('answer', result.get('error', ''))[:100] + "...",
-                "sources": result.get('sources', [])
+                "response_time": f"{duration:.3f}s",
+                "answer_preview": result.get('answer', result.get('error', ''))[:100] + "...",
+                "sources_count": len(result.get('sources', [])),
+                "response_type": result.get('response_type', 'unknown')
             })
         
         return jsonify({
             "message": "Tests completed",
             "results": test_results,
-            "status": "success"
+            "summary": {
+                "total_tests": len(test_questions),
+                "successful": sum(1 for r in test_results if r['success']),
+                "failed": sum(1 for r in test_results if not r['success'])
+            },
+            "status": "success",
+            "request_id": g.request_id,
+            "timestamp": datetime.now().isoformat()
         })
         
     except Exception as e:
+        logger.error(f"Test execution failed: {e}")
         return jsonify({
             "error": f"Test failed: {str(e)}",
-            "status": "error"
+            "status": "error",
+            "request_id": g.request_id
         }), 500
 
 @app.route('/api/products', methods=['GET'])
 def get_products():
-    """Get all available products (optional endpoint)"""
+    """Get current products data"""
     try:
-        import json
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        products_path = os.path.join(current_dir, "assistant", "products.json")
-        
-        with open(products_path, 'r', encoding='utf-8') as f:
-            products_data = json.load(f)
-        
-        return jsonify({
-            "products": products_data,
-            "count": len(products_data),
-            "status": "success"
-        })
-        
+        rag_system = get_rag_system()
+        if rag_system:
+            # Load current products
+            products_data = rag_system.data_handler.load_data(rag_system.data_source)
+            
+            return jsonify({
+                "products": products_data,
+                "count": len(products_data),
+                "data_source": {
+                    "type": rag_system.data_source.source_type,
+                    "location": rag_system.data_source.location
+                },
+                "status": "success",
+                "request_id": g.request_id,
+                "timestamp": datetime.now().isoformat()
+            })
+        else:
+            return jsonify({
+                "error": "RAG system not initialized",
+                "status": "error",
+                "request_id": g.request_id
+            }), 500
+            
     except Exception as e:
+        logger.error(f"Error getting products: {e}")
         return jsonify({
             "error": f"Failed to load products: {str(e)}",
-            "status": "error"
+            "status": "error",
+            "request_id": g.request_id
         }), 500
 
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({
-        "error": "Endpoint not found",
-        "status": "error"
-    }), 404
-
-@app.errorhandler(500)
-def internal_error(error):
-    return jsonify({
-        "error": "Internal server error",
-        "status": "error"
-    }), 500
-
 if __name__ == '__main__':
-    # Check if .env file exists
-    if not os.path.exists('.env'):
-        print("❌ .env file not found. Please create one with your GOOGLE_API_KEY")
-    else:
-        print("🚀 Starting RAG API Server...")
-        app.run(host='0.0.0.0', port=5000, debug=True)
+    if not config.validate():
+        logger.error("Configuration validation failed. Check your .env file.")
+        exit(1)
+    
+    logger.info("🚀 Starting Enhanced RAG API Server...")
+    app.run(host='0.0.0.0', port=5000, debug=True)

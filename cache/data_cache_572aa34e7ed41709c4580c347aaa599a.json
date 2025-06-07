@@ -1,0 +1,290 @@
+{
+  "timestamp": "2025-06-07T18:06:59.956660",
+  "data": [
+    {
+      "name": "Wireless Noise-Canceling Headphones",
+      "price": 299.99,
+      "description": "Premium wireless headphones with industry-leading noise cancellation and 30-hour battery life.",
+      "category": "Electronics",
+      "in_stock": true,
+      "features": [
+        "Active Noise Cancellation with 8 microphones",
+        "30-hour battery life with quick charge",
+        "Premium comfort with memory foam cushions",
+        "High-quality audio with custom drivers",
+        "Multipoint Bluetooth connection"
+      ],
+      "rating": 4.8,
+      "reviews": 2847,
+      "id": "1",
+      "_original": {
+        "id": "1",
+        "name": "Wireless Noise-Canceling Headphones",
+        "price": 299.99,
+        "originalPrice": 399.99,
+        "image": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&h=300&fit=crop",
+        "category": "Electronics",
+        "rating": 4.8,
+        "reviews": 2847,
+        "description": "Premium wireless headphones with industry-leading noise cancellation and 30-hour battery life.",
+        "features": [
+          "Active Noise Cancellation with 8 microphones",
+          "30-hour battery life with quick charge",
+          "Premium comfort with memory foam cushions",
+          "High-quality audio with custom drivers",
+          "Multipoint Bluetooth connection"
+        ],
+        "inStock": true
+      }
+    },
+    {
+      "name": "Smart Fitness Tracker",
+      "price": 199.99,
+      "description": "Advanced fitness tracker with GPS, heart rate monitoring, and 7-day battery life.",
+      "category": "Wearables",
+      "in_stock": true,
+      "features": [
+        "Built-in GPS for accurate tracking",
+        "24/7 heart rate monitoring",
+        "Sleep quality analysis",
+        "Water-resistant up to 50 meters",
+        "Smart notifications and app ecosystem"
+      ],
+      "rating": 4.6,
+      "reviews": 1523,
+      "id": "2",
+      "_original": {
+        "id": "2",
+        "name": "Smart Fitness Tracker",
+        "price": 199.99,
+        "originalPrice": 249.99,
+        "image": "https://images.unsplash.com/photo-1575311373937-040b8e1fd5b6?w=500&h=300&fit=crop",
+        "category": "Wearables",
+        "rating": 4.6,
+        "reviews": 1523,
+        "description": "Advanced fitness tracker with GPS, heart rate monitoring, and 7-day battery life.",
+        "features": [
+          "Built-in GPS for accurate tracking",
+          "24/7 heart rate monitoring",
+          "Sleep quality analysis",
+          "Water-resistant up to 50 meters",
+          "Smart notifications and app ecosystem"
+        ],
+        "inStock": true
+      }
+    },
+    {
+      "name": "Ergonomic Office Chair",
+      "price": 449.99,
+      "description": "Professional ergonomic office chair with lumbar support and adjustable features.",
+      "category": "Furniture",
+      "in_stock": false,
+      "features": [
+        "Adjustable lumbar support",
+        "Height and tilt adjustment",
+        "Breathable mesh fabric",
+        "360-degree swivel base",
+        "Weight capacity up to 300 lbs"
+      ],
+      "rating": 4.7,
+      "reviews": 892,
+      "id": "3",
+      "_original": {
+        "id": "3",
+        "name": "Ergonomic Office Chair",
+        "price": 449.99,
+        "image": "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=500&h=300&fit=crop",
+        "category": "Furniture",
+        "rating": 4.7,
+        "reviews": 892,
+        "description": "Professional ergonomic office chair with lumbar support and adjustable features.",
+        "features": [
+          "Adjustable lumbar support",
+          "Height and tilt adjustment",
+          "Breathable mesh fabric",
+          "360-degree swivel base",
+          "Weight capacity up to 300 lbs"
+        ],
+        "inStock": false
+      }
+    },
+    {
+      "name": "Portable Bluetooth Speaker",
+      "price": 89.99,
+      "description": "Waterproof portable speaker with 360-degree sound and 20-hour battery life.",
+      "category": "Electronics",
+      "in_stock": true,
+      "features": [
+        "360-degree surround sound",
+        "IPX7 waterproof rating",
+        "20-hour battery life",
+        "Wireless stereo pairing",
+        "Built-in microphone for calls"
+      ],
+      "rating": 4.4,
+      "reviews": 3241,
+      "id": "4",
+      "_original": {
+        "id": "4",
+        "name": "Portable Bluetooth Speaker",
+        "price": 89.99,
+        "originalPrice": 119.99,
+        "image": "https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=500&h=300&fit=crop",
+        "category": "Electronics",
+        "rating": 4.4,
+        "reviews": 3241,
+        "description": "Waterproof portable speaker with 360-degree sound and 20-hour battery life.",
+        "features": [
+          "360-degree surround sound",
+          "IPX7 waterproof rating",
+          "20-hour battery life",
+          "Wireless stereo pairing",
+          "Built-in microphone for calls"
+        ],
+        "inStock": true
+      }
+    },
+    {
+      "name": "Smart Home Security Camera",
+      "price": 159.99,
+      "description": "AI-powered security camera with 4K video, night vision, and smart alerts.",
+      "category": "Smart Home",
+      "in_stock": true,
+      "features": [
+        "4K Ultra HD video recording",
+        "Advanced night vision",
+        "AI person and vehicle detection",
+        "Two-way audio communication",
+        "Cloud and local storage options"
+      ],
+      "rating": 4.5,
+      "reviews": 1876,
+      "id": "5",
+      "_original": {
+        "id": "5",
+        "name": "Smart Home Security Camera",
+        "price": 159.99,
+        "image": "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=500&h=300&fit=crop",
+        "category": "Smart Home",
+        "rating": 4.5,
+        "reviews": 1876,
+        "description": "AI-powered security camera with 4K video, night vision, and smart alerts.",
+        "features": [
+          "4K Ultra HD video recording",
+          "Advanced night vision",
+          "AI person and vehicle detection",
+          "Two-way audio communication",
+          "Cloud and local storage options"
+        ],
+        "inStock": true
+      }
+    },
+    {
+      "name": "Premium Coffee Maker",
+      "price": 249.99,
+      "description": "Programmable drip coffee maker with thermal carafe and customizable brewing options.",
+      "category": "Kitchen",
+      "in_stock": true,
+      "features": [
+        "12-cup thermal carafe",
+        "Programmable 24-hour timer",
+        "Adjustable brew strength",
+        "Auto shut-off safety feature",
+        "Permanent gold-tone filter included"
+      ],
+      "rating": 4.6,
+      "reviews": 967,
+      "id": "6",
+      "_original": {
+        "id": "6",
+        "name": "Premium Coffee Maker",
+        "price": 249.99,
+        "originalPrice": 299.99,
+        "image": "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=500&h=300&fit=crop",
+        "category": "Kitchen",
+        "rating": 4.6,
+        "reviews": 967,
+        "description": "Programmable drip coffee maker with thermal carafe and customizable brewing options.",
+        "features": [
+          "12-cup thermal carafe",
+          "Programmable 24-hour timer",
+          "Adjustable brew strength",
+          "Auto shut-off safety feature",
+          "Permanent gold-tone filter included"
+        ],
+        "inStock": true
+      }
+    },
+    {
+      "name": "Mechanical Gaming Keyboard",
+      "price": 129.99,
+      "description": "RGB mechanical keyboard with tactile switches and customizable lighting effects.",
+      "category": "Gaming",
+      "in_stock": true,
+      "features": [
+        "Mechanical tactile switches",
+        "RGB backlighting with effects",
+        "Anti-ghosting technology",
+        "Programmable macro keys",
+        "Detachable USB-C cable"
+      ],
+      "rating": 4.8,
+      "reviews": 2156,
+      "id": "7",
+      "_original": {
+        "id": "7",
+        "name": "Mechanical Gaming Keyboard",
+        "price": 129.99,
+        "image": "https://images.unsplash.com/photo-1541140532154-b024d705b90a?w=500&h=300&fit=crop",
+        "category": "Gaming",
+        "rating": 4.8,
+        "reviews": 2156,
+        "description": "RGB mechanical keyboard with tactile switches and customizable lighting effects.",
+        "features": [
+          "Mechanical tactile switches",
+          "RGB backlighting with effects",
+          "Anti-ghosting technology",
+          "Programmable macro keys",
+          "Detachable USB-C cable"
+        ],
+        "inStock": true
+      }
+    },
+    {
+      "name": "Wireless Charging Pad",
+      "price": 39.99,
+      "description": "Fast wireless charging pad compatible with all Qi-enabled devices.",
+      "category": "Accessories",
+      "in_stock": true,
+      "features": [
+        "10W fast wireless charging",
+        "Qi-certified compatibility",
+        "LED charging indicator",
+        "Non-slip surface design",
+        "Overcharge protection"
+      ],
+      "rating": 4.3,
+      "reviews": 1432,
+      "id": "8",
+      "_original": {
+        "id": "8",
+        "name": "Wireless Charging Pad",
+        "price": 39.99,
+        "originalPrice": 59.99,
+        "image": "https://images.unsplash.com/photo-1609592193419-8e3c0c7c9b3e?w=500&h=300&fit=crop",
+        "category": "Accessories",
+        "rating": 4.3,
+        "reviews": 1432,
+        "description": "Fast wireless charging pad compatible with all Qi-enabled devices.",
+        "features": [
+          "10W fast wireless charging",
+          "Qi-certified compatibility",
+          "LED charging indicator",
+          "Non-slip surface design",
+          "Overcharge protection"
+        ],
+        "inStock": true
+      }
+    }
+  ]
+}
