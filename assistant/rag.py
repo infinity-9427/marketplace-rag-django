@@ -126,7 +126,7 @@ def detect_products_from_query(query):
     return detected_products, detected_categories
 
 def enhanced_retrieval(question: str, k: int = 15):
-    """Enhanced retrieval with dynamic product detection"""
+    """Enhanced retrieval with dynamic product detection and stock filtering"""
     try:
         multi_product_indicators = ['and', 'also', 'plus', 'multiple', 'several', ',', 'both', 'all']
         is_multi_product = any(indicator in question.lower() for indicator in multi_product_indicators)
@@ -136,6 +136,20 @@ def enhanced_retrieval(question: str, k: int = 15):
         initial_k = k * 3 if is_multi_product else k * 2
         similarity_docs = _vectorstore.similarity_search(question, k=initial_k)
         
+        # Filter out unavailable products
+        available_docs = []
+        unavailable_products = []
+        
+        for doc in similarity_docs:
+            product_name = doc.metadata.get('product_name', '')
+            in_stock = doc.metadata.get('in_stock', True)  # Default to True if not specified
+            
+            if in_stock:
+                available_docs.append(doc)
+            else:
+                unavailable_products.append(product_name)
+        
+        # Continue with existing logic using available_docs instead of similarity_docs
         categories_found = set()
         product_types_found = set()
         diverse_docs = []
@@ -145,13 +159,13 @@ def enhanced_retrieval(question: str, k: int = 15):
                 catalog_docs = _vectorstore.similarity_search(
                     "catalog overview product summary", 
                     k=2,
-                    filter={"doc_type": "catalog_summary"}
+                    filter={"doc_type": "catalog_summary", "in_stock": True}
                 )
                 diverse_docs.extend(catalog_docs)
             except Exception:
                 pass
         
-        for doc in similarity_docs:
+        for doc in available_docs:  # Use filtered docs
             if len(diverse_docs) >= k:
                 break
                 
@@ -173,22 +187,9 @@ def enhanced_retrieval(question: str, k: int = 15):
                 diverse_docs.append(doc)
                 categories_found.add(doc_category)
         
-        if detected_products and len(product_types_found) < len(detected_products):
-            missing_products = [p for p in detected_products if p['product_key'] not in product_types_found]
-            for missing_product in missing_products[:3]:
-                try:
-                    search_terms = ' '.join(missing_product['keywords'][:5])
-                    specific_docs = _vectorstore.similarity_search(search_terms, k=3)
-                    
-                    for doc in specific_docs:
-                        if len(diverse_docs) >= k:
-                            break
-                        doc_name = doc.metadata.get('product_name', '').lower()
-                        if any(keyword in doc_name for keyword in missing_product['keywords']):
-                            diverse_docs.append(doc)
-                            break
-                except Exception:
-                    pass
+        # Store unavailable products info for response
+        if hasattr(_vectorstore, '_unavailable_products'):
+            _vectorstore._unavailable_products = unavailable_products
         
         return diverse_docs[:k]
         
@@ -285,6 +286,9 @@ CONVERSATION HISTORY:
 PRODUCT INFORMATION:
 {context}
 
+UNAVAILABLE PRODUCTS:
+{unavailable_info}
+
 CUSTOMER QUESTION: {question}
 
 RESPONSE STYLE GUIDELINES:
@@ -295,43 +299,44 @@ RESPONSE STYLE GUIDELINES:
 - Mention specific prices, features, and availability
 - Be enthusiastic but not pushy
 - Use natural transitions between products
-- Write in flowing paragraphs without special formatting"""
+- Write in flowing paragraphs without special formatting
+- If products are unavailable or out of stock, mention this briefly and focus on available alternatives"""
 
     templates = {
         'brief': PromptTemplate(
             template=base_context + """
 
-Keep your response very short and direct. Just give the essential information the customer needs in plain text. Maximum 2-3 sentences total with no formatting symbols.
+Keep your response very short and direct. Just give the essential information about available products. If asked about unavailable items, briefly mention they're out of stock and suggest alternatives if available. Maximum 2-3 sentences total with no formatting symbols.
 
 Give a quick, helpful answer:""",
-            input_variables=["context", "question", "conversation_history"]
+            input_variables=["context", "question", "conversation_history", "unavailable_info"]
         ),
         
         'summary': PromptTemplate(
             template=base_context + """
 
-Provide a friendly, conversational response with key product details. For each product, mention the name, current price, top features that matter most to customers, and whether it's in stock. Keep it natural and flowing like you're explaining to someone in person. Use plain text only, no formatting symbols. Aim for 3-5 sentences per product.
+Provide a friendly, conversational response focusing on available products. If some requested items are unavailable, briefly mention this and focus on what we do have in stock. For each available product, mention the name, current price, top features, and availability. Keep it natural and flowing. Use plain text only. Aim for 3-5 sentences per available product.
 
 Give a helpful, conversational summary:""",
-            input_variables=["context", "question", "conversation_history"]
+            input_variables=["context", "question", "conversation_history", "unavailable_info"]
         ),
         
         'detailed': PromptTemplate(
             template=base_context + """
 
-Since the customer wants detailed information, provide comprehensive details in a natural, conversational way. Include all specifications, features, benefits, use cases, and technical details. Write as if you're a knowledgeable friend sharing everything they should know about the product. Use only plain text with no special formatting.
+Provide comprehensive details about available products. If requested items are out of stock, mention this briefly and focus detailed information on available alternatives. Include all specifications, features, benefits for available products only. Write conversationally with plain text.
 
-Provide detailed, comprehensive information:""",
-            input_variables=["context", "question", "conversation_history"]
+Provide detailed information about available products:""",
+            input_variables=["context", "question", "conversation_history", "unavailable_info"]
         ),
         
         'comparison': PromptTemplate(
             template=base_context + """
 
-Help the customer compare products by naturally explaining the key differences, strengths of each option, and which might work better for different needs. Write conversationally as if you're helping them weigh their options in person. Use plain text only.
+Compare only available products. If some requested items are unavailable, briefly mention this and compare the products we do have in stock. Focus on helping them choose between available options. Use plain text only.
 
-Provide a helpful comparison to guide their decision:""",
-            input_variables=["context", "question", "conversation_history"]
+Compare available products to guide their decision:""",
+            input_variables=["context", "question", "conversation_history", "unavailable_info"]
         )
     }
     
@@ -355,12 +360,25 @@ class SuperAccurateRetrievalQA:
             intent = detect_query_intent(query_text)
             docs = self.enhanced_retrieval_with_intent(query_text, intent, k=12)
             
+            # Check for unavailable products
+            unavailable_info = ""
+            if hasattr(self.vectorstore, '_unavailable_products') and self.vectorstore._unavailable_products:
+                unavailable_products = list(set(self.vectorstore._unavailable_products))
+                if unavailable_products:
+                    unavailable_info = f"Note: {', '.join(unavailable_products)} are currently out of stock."
+            
             if docs:
                 context_parts = []
                 seen_products = set()
                 
                 for i, doc in enumerate(docs):
                     product_name = doc.metadata.get('product_name', '').lower()
+                    in_stock = doc.metadata.get('in_stock', True)
+                    
+                    # Skip out of stock products in context
+                    if not in_stock:
+                        continue
+                        
                     if product_name and product_name in seen_products and intent['detail_level'] == 'brief':
                         continue
                     
@@ -372,8 +390,18 @@ class SuperAccurateRetrievalQA:
                     context_parts.append("")
                 
                 context = "\n".join(context_parts)
+                
+                # If no available products found, provide a concise message
+                if not context.strip():
+                    return {
+                        "result": "I'm sorry, the products you're asking about are currently out of stock. Would you like me to suggest some similar available alternatives?",
+                        "source_documents": [],
+                        "intent": intent,
+                        "template_used": "out_of_stock"
+                    }
             else:
                 context = "I don't have specific information about that product in our current catalog."
+                unavailable_info = "The requested product may not be available in our current inventory."
             
             history_text = ""
             if _conversation_history:
@@ -395,7 +423,8 @@ class SuperAccurateRetrievalQA:
             prompt_text = prompt_template.format(
                 context=context,
                 question=query_text,
-                conversation_history=history_text
+                conversation_history=history_text,
+                unavailable_info=unavailable_info
             )
             
             temperature = 0.3 if intent['detail_level'] == 'brief' else 0.4
@@ -517,10 +546,14 @@ def build_rag_chain():
             # Create vector store from products
             documents = []
             for product in products_data:
+                # Check if product is in stock (default to True if not specified)
+                in_stock = product.get('in_stock', True)
+                
                 content = f"Product: {product['name']}\n"
                 content += f"Description: {product['description']}\n"
                 content += f"Price: ${product['price']}\n"
                 content += f"Category: {product['category']}\n"
+                content += f"In Stock: {'Yes' if in_stock else 'No'}\n"
                 
                 if product.get('features'):
                     content += f"Features: {', '.join(product['features'])}\n"
@@ -531,6 +564,7 @@ def build_rag_chain():
                         "product_name": product['name'],
                         "category": product['category'],
                         "price": product['price'],
+                        "in_stock": in_stock,
                         "doc_type": "product"
                     }
                 )
@@ -543,6 +577,9 @@ def build_rag_chain():
                 persist_directory=chroma_dir
             )
             _vectorstore.persist()
+        
+        # Initialize unavailable products tracking
+        _vectorstore._unavailable_products = []
         
         # Create RAG chain
         _qa_chain = SuperAccurateRetrievalQA(llm, _vectorstore)
