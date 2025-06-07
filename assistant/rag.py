@@ -1,690 +1,609 @@
 import os
 import json
 import traceback
+from collections import defaultdict
+import re
 from langchain_community.vectorstores import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
-from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from dotenv import load_dotenv
 from langchain_community.vectorstores.utils import filter_complex_metadata
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
+# Global variables
 _qa_chain = None
 _vectorstore = None
 _conversation_history = []
+_dynamic_keywords = {}
+_category_keywords = {}
+
+def generate_dynamic_keywords(products_data):
+    """Generate dynamic keywords based on actual product data"""
+    global _dynamic_keywords, _category_keywords
+    
+    _dynamic_keywords = defaultdict(set)
+    _category_keywords = defaultdict(set)
+    
+    def extract_keywords_from_text(text, min_length=3):
+        """Extract meaningful keywords from text"""
+        if not text:
+            return []
+        
+        words = re.findall(r'\b\w+\b', text.lower())
+        
+        stop_words = {
+            'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+            'by', 'is', 'are', 'was', 'were', 'been', 'have', 'has', 'had', 'will',
+            'would', 'could', 'should', 'this', 'that', 'these', 'those', 'a', 'an'
+        }
+        
+        keywords = []
+        for word in words:
+            if len(word) >= min_length and word not in stop_words and not word.isdigit():
+                keywords.append(word)
+        
+        return keywords
+    
+    for product in products_data:
+        try:
+            name = product.get('name', '').lower()
+            description = product.get('description', '').lower()
+            category = product.get('category', 'general').lower()
+            features = product.get('features', [])
+            
+            product_key = name.replace(' ', '_').replace('-', '_')
+            
+            name_keywords = extract_keywords_from_text(name)
+            _dynamic_keywords[product_key].update(name_keywords)
+            
+            desc_keywords = extract_keywords_from_text(description)
+            _dynamic_keywords[product_key].update(desc_keywords)
+            
+            for feature in features:
+                if isinstance(feature, str):
+                    feature_keywords = extract_keywords_from_text(feature)
+                    _dynamic_keywords[product_key].update(feature_keywords)
+            
+            _category_keywords[category].update(name_keywords)
+            _category_keywords[category].update(desc_keywords)
+            
+            category_synonyms = {
+                'electronics': ['electronic', 'device', 'gadget', 'tech', 'digital'],
+                'wearables': ['wearable', 'smart', 'fitness', 'health', 'monitor'],
+                'furniture': ['furniture', 'office', 'desk', 'ergonomic', 'comfortable'],
+                'kitchen': ['kitchen', 'cooking', 'appliance', 'food', 'beverage'],
+                'gaming': ['gaming', 'game', 'player', 'competitive', 'performance'],
+                'smart home': ['smart', 'home', 'automation', 'control', 'security'],
+                'accessories': ['accessory', 'add-on', 'complement', 'enhancement']
+            }
+            
+            if category in category_synonyms:
+                _dynamic_keywords[product_key].update(category_synonyms[category])
+                _category_keywords[category].update(category_synonyms[category])
+            
+        except Exception:
+            continue
+    
+    _dynamic_keywords = {k: list(v) for k, v in _dynamic_keywords.items()}
+    _category_keywords = {k: list(v) for k, v in _category_keywords.items()}
+    
+    return _dynamic_keywords, _category_keywords
+
+def detect_products_from_query(query):
+    """Dynamically detect products mentioned in query using generated keywords"""
+    global _dynamic_keywords, _category_keywords
+    
+    query_lower = query.lower()
+    detected_products = []
+    detected_categories = []
+    
+    for product_key, keywords in _dynamic_keywords.items():
+        match_score = 0
+        for keyword in keywords:
+            if keyword in query_lower:
+                match_score += 1
+        
+        if match_score >= 1:
+            detected_products.append({
+                'product_key': product_key,
+                'keywords': keywords,
+                'match_score': match_score
+            })
+    
+    for category, keywords in _category_keywords.items():
+        for keyword in keywords:
+            if keyword in query_lower:
+                detected_categories.append(category)
+                break
+    
+    detected_products.sort(key=lambda x: x['match_score'], reverse=True)
+    
+    return detected_products, detected_categories
+
+def enhanced_retrieval(question: str, k: int = 15):
+    """Enhanced retrieval with dynamic product detection"""
+    try:
+        multi_product_indicators = ['and', 'also', 'plus', 'multiple', 'several', ',', 'both', 'all']
+        is_multi_product = any(indicator in question.lower() for indicator in multi_product_indicators)
+        
+        detected_products, detected_categories = detect_products_from_query(question)
+        
+        initial_k = k * 3 if is_multi_product else k * 2
+        similarity_docs = _vectorstore.similarity_search(question, k=initial_k)
+        
+        categories_found = set()
+        product_types_found = set()
+        diverse_docs = []
+        
+        if is_multi_product or len(detected_products) > 1:
+            try:
+                catalog_docs = _vectorstore.similarity_search(
+                    "catalog overview product summary", 
+                    k=2,
+                    filter={"doc_type": "catalog_summary"}
+                )
+                diverse_docs.extend(catalog_docs)
+            except Exception:
+                pass
+        
+        for doc in similarity_docs:
+            if len(diverse_docs) >= k:
+                break
+                
+            doc_category = doc.metadata.get('category', 'unknown').lower()
+            doc_name = doc.metadata.get('product_name', '').lower()
+            
+            matches_detected = False
+            if detected_products:
+                for detected in detected_products:
+                    keywords = detected['keywords']
+                    if any(keyword in doc_name or keyword in doc.page_content.lower() for keyword in keywords):
+                        matches_detected = True
+                        product_types_found.add(detected['product_key'])
+                        break
+            else:
+                matches_detected = True
+            
+            if matches_detected:
+                diverse_docs.append(doc)
+                categories_found.add(doc_category)
+        
+        if detected_products and len(product_types_found) < len(detected_products):
+            missing_products = [p for p in detected_products if p['product_key'] not in product_types_found]
+            for missing_product in missing_products[:3]:
+                try:
+                    search_terms = ' '.join(missing_product['keywords'][:5])
+                    specific_docs = _vectorstore.similarity_search(search_terms, k=3)
+                    
+                    for doc in specific_docs:
+                        if len(diverse_docs) >= k:
+                            break
+                        doc_name = doc.metadata.get('product_name', '').lower()
+                        if any(keyword in doc_name for keyword in missing_product['keywords']):
+                            diverse_docs.append(doc)
+                            break
+                except Exception:
+                    pass
+        
+        return diverse_docs[:k]
+        
+    except Exception:
+        return []
 
 def validate_system_health():
     """Validate that all system components are working"""
     try:
-        print("=== RAG System Health Check ===")
-        
-        # 1. Check API key
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
-            print("❌ Google API key not found")
             return False
-        print("✅ Google API key found")
         
-        # 2. Check products.json
         current_dir = os.path.dirname(os.path.abspath(__file__))
         products_path = os.path.join(current_dir, "products.json")
         if not os.path.exists(products_path):
-            print(f"❌ products.json not found at {products_path}")
             return False
         
         with open(products_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        print(f"✅ products.json loaded successfully ({len(data)} products)")
+            json.load(f)
         
-        # 3. Test embeddings
         try:
             embeddings = GoogleGenerativeAIEmbeddings(
                 model="models/text-embedding-004",
                 google_api_key=api_key,
                 task_type="retrieval_document"
             )
-            print("✅ Embeddings model accessible")
-        except Exception as e:
-            print(f"❌ Embeddings model failed: {e}")
+        except Exception:
             return False
         
-        # 4. Test LLM
         try:
             llm = ChatGoogleGenerativeAI(
                 model="gemini-1.5-flash",
                 temperature=0.1,
                 google_api_key=api_key,
-                max_tokens=100
+                max_output_tokens=100
             )
-            test_response = llm.invoke([HumanMessage(content="Hello")])
-            print("✅ LLM model accessible")
-        except Exception as e:
-            print(f"❌ LLM model failed: {e}")
+            llm.invoke([HumanMessage(content="Hello")])
+        except Exception:
             return False
         
-        print("=== All systems operational ===")
         return True
         
-    except Exception as e:
-        print(f"❌ Health check failed: {e}")
+    except Exception:
         return False
 
-def build_rag_chain():
-    global _qa_chain, _vectorstore
-    if _qa_chain is not None:
-        return _qa_chain
+def detect_query_intent(query):
+    """Detect user intent for response detail level"""
+    query_lower = query.lower()
     
-    # Run health check first
-    if not validate_system_health():
-        print("System health check failed - aborting RAG chain build")
-        return None
-        
-    try:
-        print("Starting RAG chain build process...")
-        
-        # Check if API key exists
-        api_key = os.getenv("GOOGLE_API_KEY")
-        print(f"API Key loaded: {'Yes' if api_key else 'No'}")
-        if api_key:
-            print(f"API Key starts with: {api_key[:10]}...")
-        
-        if not api_key:
-            print("Error: GOOGLE_API_KEY environment variable not set")
-            return None
+    detailed_keywords = [
+        'detailed', 'details', 'comprehensive', 'in-depth', 'explain', 'how does',
+        'specifications', 'specs', 'features', 'tell me more', 'elaborate',
+        'thorough', 'complete information', 'full description', 'everything about'
+    ]
+    
+    comparison_keywords = [
+        'compare', 'comparison', 'vs', 'versus', 'difference', 'better', 'best',
+        'which one', 'choose between', 'recommend', 'similar'
+    ]
+    
+    summary_keywords = [
+        'quick', 'briefly', 'summary', 'overview', 'just tell me', 'short',
+        'main features', 'key points', 'simply', 'concise'
+    ]
+    
+    intent = {
+        'detail_level': 'summary',
+        'wants_comparison': False,
+        'wants_recommendations': False
+    }
+    
+    if any(keyword in query_lower for keyword in detailed_keywords):
+        intent['detail_level'] = 'detailed'
+    elif any(keyword in query_lower for keyword in summary_keywords):
+        intent['detail_level'] = 'brief'
+    
+    if any(keyword in query_lower for keyword in comparison_keywords):
+        intent['wants_comparison'] = True
+    
+    if any(word in query_lower for word in ['recommend', 'suggest', 'best', 'should i']):
+        intent['wants_recommendations'] = True
+    
+    return intent
 
-        # Get the absolute path to products.json
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        products_path = os.path.join(current_dir, "products.json")
-        print(f"Looking for products at: {products_path}")
-        
-        # Check if file exists
-        if not os.path.exists(products_path):
-            print(f"Error: products.json file not found at {products_path}")
-            return None
-        
-        # Load products with error handling
-        try:
-            with open(products_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            print(f"Successfully loaded {len(data)} products")
-        except json.JSONDecodeError as e:
-            print(f"Error parsing JSON file: {e}")
-            return None
-        except Exception as e:
-            print(f"Error reading products file: {e}")
-            return None
+def create_enhanced_prompt_templates():
+    """Create human-like prompt templates without formatting symbols"""
+    
+    base_context = """You are a friendly and knowledgeable electronics store assistant. Respond naturally as if you're having a conversation with a customer in the store. Be helpful, accurate, and conversational.
 
-        # Enhanced document creation with better structure for multi-product queries
-        docs = []
-        print("Creating documents...")
-        
-        # Create a comprehensive catalog overview document
-        catalog_overview = []
-        catalog_overview.append("COMPLETE PRODUCT CATALOG OVERVIEW:")
-        catalog_overview.append("Available Categories: Electronics, Wearables, Furniture, Smart Home, Kitchen, Gaming, Accessories")
-        catalog_overview.append("\nPRODUCT SUMMARY:")
-        
-        for idx, item in enumerate(data):
-            product_name = item.get('name', f'Product_{idx}')
-            category = item.get('category', 'general')
-            price = item.get('price', 0)
-            rating = item.get('rating', 0)
-            in_stock = item.get('inStock', True)
-            
-            catalog_overview.append(f"- {product_name} ({category}) - ${price} - {rating}/5 stars - {'In Stock' if in_stock else 'Out of Stock'}")
-        
-        # Add catalog overview document
-        docs.append(Document(
-            page_content="\n".join(catalog_overview),
-            metadata={
-                "source": "catalog_overview",
-                "doc_type": "catalog_summary"
-            }
-        ))
-        
-        for idx, item in enumerate(data):
-            try:
-                # Debug: print the structure of the first item to understand the data format
-                if idx == 0:
-                    print(f"Product structure: {list(item.keys())}")
-                
-                # Extract comprehensive product information with safe defaults
-                product_name = item.get('name', f'Product_{idx}')
-                description = item.get('description', 'No description available')
-                price = item.get('price', 0)
-                original_price = item.get('originalPrice', None)
-                category = item.get('category', 'general')
-                rating = item.get('rating', 0)
-                reviews = item.get('reviews', 0)
-                in_stock = item.get('inStock', True)
-                features = item.get('features', [])
-                product_id = item.get('id', f'prod_{idx}')
-                
-                # Ensure features is a list and handle None values
-                if not isinstance(features, list):
-                    features = []
-                
-                # Validate required fields
-                if not product_name or product_name == f'Product_{idx}':
-                    print(f"Warning: Product {idx} has no valid name, skipping")
-                    continue
-                
-                # Create main comprehensive product document
-                main_content = [
-                    f"PRODUCT: {product_name}",
-                    f"ID: {product_id}",
-                    f"Category: {category}",
-                    f"Price: ${price}",
-                ]
-                
-                # Add original price if available (indicates sale)
-                if original_price and original_price != price and original_price > price:
-                    savings = original_price - price
-                    main_content.append(f"Original Price: ${original_price} (SALE: Save ${savings:.2f})")
-                
-                main_content.extend([
-                    f"Rating: {rating}/5 stars ({reviews} reviews)",
-                    f"Stock Status: {'Available' if in_stock else 'Out of Stock'}",
-                    f"Description: {description}"
-                ])
-                
-                # Add detailed features with better formatting
-                if features:
-                    main_content.append("Key Features:")
-                    for feat_idx, feature in enumerate(features, 1):
-                        if feature and isinstance(feature, str):
-                            main_content.append(f"  {feat_idx}. {feature.strip()}")
-                
-                # Join all content
-                full_content = "\n".join(main_content)
-                
-                # Validate content before creating document
-                if len(full_content.strip()) < 50:  # Minimum content check
-                    print(f"Warning: Product {idx} has insufficient content, skipping")
-                    continue
-                
-                # Create main comprehensive product document
-                docs.append(Document(
-                    page_content=full_content,
-                    metadata={
-                        "source": "product_details",
-                        "product_id": product_id,
-                        "product_name": product_name,
-                        "category": category,
-                        "price": price,
-                        "original_price": original_price,
-                        "rating": rating,
-                        "reviews": reviews,
-                        "in_stock": in_stock,
-                        "doc_type": "detailed_product"
-                    }
-                ))
-                
-                # Create category-specific documents for better retrieval
-                category_keywords = {
-                    "Electronics": ["headphones", "speaker", "audio", "sound", "wireless", "bluetooth"],
-                    "Wearables": ["smartwatch", "fitness", "tracker", "watch", "wearable", "health"],
-                    "Kitchen": ["coffee", "maker", "brew", "kitchen", "appliance", "thermal"],
-                    "Gaming": ["keyboard", "mechanical", "gaming", "rgb", "switches", "tactile"],
-                    "Smart Home": ["camera", "security", "smart", "home", "surveillance", "ai"],
-                    "Furniture": ["chair", "office", "ergonomic", "desk", "furniture"],
-                    "Accessories": ["charging", "wireless", "pad", "qi", "charger"]
-                }
-                
-                keywords = category_keywords.get(category, [])
-                # Convert keywords list to comma-separated string for metadata
-                keywords_string = ", ".join(keywords)
-                keyword_content = f"Product: {product_name} | Category: {category} | Keywords: {keywords_string} | Price: ${price} | Rating: {rating}/5 | {'In Stock' if in_stock else 'Out of Stock'} | Features: {', '.join(features[:3])}"
-                
-                docs.append(Document(
-                    page_content=keyword_content,
-                    metadata={
-                        "source": "product_keywords",
-                        "product_name": product_name,
-                        "category": category,
-                        "keywords": keywords_string,  # Changed from list to string
-                        "doc_type": "keyword_focused"
-                    }
-                ))
-                
-                # Create search-optimized documents for common queries
-                search_terms = []
-                
-                # Add product name variations
-                name_parts = product_name.lower().split()
-                search_terms.extend(name_parts)
-                
-                # Add category-specific search terms
-                if category == "Electronics" and any(word in product_name.lower() for word in ["headphones", "speaker"]):
-                    search_terms.extend(["music", "audio", "listening", "sound"])
-                elif category == "Wearables":
-                    search_terms.extend(["fitness", "health", "tracking", "smartwatch"])
-                elif category == "Kitchen":
-                    search_terms.extend(["coffee", "brewing", "morning", "drink"])
-                elif category == "Gaming":
-                    search_terms.extend(["typing", "programming", "mechanical", "keyboard"])
-                elif category == "Smart Home":
-                    search_terms.extend(["security", "surveillance", "home", "safety"])
-                
-                # Convert search_terms list to string for metadata
-                search_terms_string = ", ".join(search_terms)
-                search_content = f"SEARCH MATCH: {product_name} - {category} product for {search_terms_string} - ${price} - {rating}/5 stars - {description[:100]}"
-                
-                docs.append(Document(
-                    page_content=search_content,
-                    metadata={
-                        "source": "search_optimized",
-                        "product_name": product_name,
-                        "category": category,
-                        "search_terms": search_terms_string,  # Changed from list to string
-                        "doc_type": "search_focused"
-                    }
-                ))
-                
-            except Exception as e:
-                print(f"Error processing product {idx}: {e}")
-                continue
-
-        print(f"Created {len(docs)} total documents with enhanced variations")
-
-        if not docs:
-            print("Error: No documents were created")
-            return None
-
-        # Enhanced text splitting with better parameters for product data
-        try:
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=600,  # Larger chunks to keep product info together
-                chunk_overlap=100,  # More overlap for better context
-                separators=["\n\nPRODUCT:", "\n\n", "\n", ".", " "],
-                length_function=len,
-                is_separator_regex=False
-            )
-            chunks = splitter.split_documents(docs)
-            print(f"Created {len(chunks)} chunks after enhanced splitting")
-        except Exception as e:
-            print(f"Error during text splitting: {e}")
-            return None
-
-        # Generate unique IDs for chunks
-        chunk_ids = [f"chunk_{i}" for i in range(len(chunks))]
-
-        # Enhanced embeddings with better model and error handling
-        try:
-            embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/text-embedding-004",
-                google_api_key=api_key,
-                task_type="retrieval_document"
-            )
-            print("Embeddings model initialized successfully")
-        except Exception as e:
-            print(f"Error initializing embeddings: {e}")
-            # Fallback to a simpler embedding model
-            try:
-                embeddings = GoogleGenerativeAIEmbeddings(
-                    model="models/embedding-001",
-                    google_api_key=api_key
-                )
-                print("Fallback embeddings model initialized")
-            except Exception as fallback_e:
-                print(f"Fallback embeddings also failed: {fallback_e}")
-                return None
-
-        # Enhanced vectorstore with better configuration
-        try:
-            # Filter out complex metadata before creating vector store
-            filtered_chunks = []
-            for chunk in chunks:
-                # Create a copy of the chunk with filtered metadata
-                filtered_metadata = {}
-                for key, value in chunk.metadata.items():
-                    # Only keep simple types that Chroma supports
-                    if isinstance(value, (str, int, float, bool)) or value is None:
-                        filtered_metadata[key] = value
-                    elif isinstance(value, list):
-                        # Convert lists to comma-separated strings
-                        if all(isinstance(item, str) for item in value):
-                            filtered_metadata[key] = ", ".join(value)
-                        else:
-                            filtered_metadata[key] = str(value)
-                    else:
-                        filtered_metadata[key] = str(value)
-                
-                filtered_chunk = Document(
-                    page_content=chunk.page_content,
-                    metadata=filtered_metadata
-                )
-                filtered_chunks.append(filtered_chunk)
-            
-            _vectorstore = Chroma.from_documents(
-                filtered_chunks, 
-                embeddings,
-                ids=chunk_ids,
-                persist_directory="./chroma_db"
-            )
-            print("Enhanced vector store created successfully")
-        except Exception as e:
-            print(f"Error creating vector store: {e}")
-            return None
-
-        # Multi-strategy retrieval system for better multi-product queries
-        def enhanced_retrieval(question: str, k: int = 15):
-            """Enhanced retrieval with better handling for multi-product queries"""
-            try:
-                print(f"Searching for: {question}")
-                
-                # Detect multi-product queries
-                multi_product_indicators = ['and', 'also', 'plus', 'multiple', 'several', ',', 'both', 'all']
-                is_multi_product = any(indicator in question.lower() for indicator in multi_product_indicators)
-                
-                # Strategy 1: Get diverse results with similarity search
-                initial_k = k * 3 if is_multi_product else k * 2
-                similarity_docs = _vectorstore.similarity_search(
-                    question, 
-                    k=initial_k
-                )
-                
-                # Strategy 2: Extract product categories/types from query
-                product_keywords = {
-                    'coffee': ['coffee', 'maker', 'brew', 'espresso', 'thermal'],
-                    'headphones': ['headphones', 'headset', 'audio', 'wireless', 'bluetooth'],
-                    'smartwatch': ['smartwatch', 'watch', 'fitness', 'tracker', 'wearable'],
-                    'keyboard': ['keyboard', 'mechanical', 'gaming', 'typing'],
-                    'camera': ['camera', 'security', 'surveillance', 'smart'],
-                    'chair': ['chair', 'office', 'ergonomic', 'furniture'],
-                    'charger': ['charger', 'charging', 'wireless', 'pad', 'qi']
-                }
-                
-                detected_products = []
-                for product_type, keywords in product_keywords.items():
-                    if any(keyword in question.lower() for keyword in keywords):
-                        detected_products.append(product_type)
-                
-                print(f"Detected product types: {detected_products}")
-                
-                # Strategy 3: Get category-diverse results
-                categories_found = set()
-                product_types_found = set()
-                diverse_docs = []
-                
-                # First, add catalog overview for multi-product queries
-                if is_multi_product or len(detected_products) > 1:
-                    try:
-                        catalog_docs = _vectorstore.similarity_search(
-                            "catalog overview product summary", 
-                            k=2,
-                            filter={"doc_type": "catalog_summary"}
-                        )
-                        diverse_docs.extend(catalog_docs)
-                    except Exception as catalog_e:
-                        print(f"Warning: Could not retrieve catalog overview: {catalog_e}")
-                
-                # Then add diverse product documents
-                for doc in similarity_docs:
-                    if len(diverse_docs) >= k:
-                        break
-                        
-                    doc_category = doc.metadata.get('category', 'unknown')
-                    doc_name = doc.metadata.get('product_name', '').lower()
-                    
-                    # Check if this document matches detected product types
-                    matches_detected = False
-                    if detected_products:
-                        for product_type in detected_products:
-                            if any(keyword in doc_name for keyword in product_keywords.get(product_type, [])):
-                                matches_detected = True
-                                product_types_found.add(product_type)
-                                break
-                    else:
-                        matches_detected = True  # Include all if no specific products detected
-                    
-                    # Include documents that match criteria
-                    if matches_detected:
-                        diverse_docs.append(doc)
-                        categories_found.add(doc_category)
-                
-                # Strategy 4: Ensure we have representatives from each detected product type
-                if detected_products and len(product_types_found) < len(detected_products):
-                    missing_products = set(detected_products) - product_types_found
-                    for missing_product in missing_products:
-                        try:
-                            specific_docs = _vectorstore.similarity_search(
-                                f"{missing_product} {' '.join(product_keywords[missing_product])}", 
-                                k=3
-                            )
-                            for doc in specific_docs:
-                                if len(diverse_docs) >= k:
-                                    break
-                                doc_name = doc.metadata.get('product_name', '').lower()
-                                if any(keyword in doc_name for keyword in product_keywords[missing_product]):
-                                    diverse_docs.append(doc)
-                                    break
-                        except Exception as specific_e:
-                            print(f"Warning: Could not retrieve specific docs for {missing_product}: {specific_e}")
-                
-                print(f"Found {len(diverse_docs)} documents from {len(categories_found)} categories, covering {len(product_types_found)} product types")
-                return diverse_docs[:k]
-                
-            except Exception as e:
-                print(f"Error in retrieval: {e}")
-                traceback.print_exc()
-                return []
-
-        # Enhanced prompt template for multi-product queries
-        enhanced_prompt = PromptTemplate(
-            template="""You are an expert electronics store assistant with comprehensive knowledge of our product catalog. Your goal is to provide detailed, helpful information about products and assist customers in making informed decisions.
-
-CONVERSATION CONTEXT:
+CONVERSATION HISTORY:
 {conversation_history}
 
-PRODUCT CATALOG INFORMATION:
+PRODUCT INFORMATION:
 {context}
 
 CUSTOMER QUESTION: {question}
 
-RESPONSE GUIDELINES:
+RESPONSE STYLE GUIDELINES:
+- Write naturally like you're talking to a friend
+- Never use asterisks, bullet points, or any formatting symbols
+- Never use markdown formatting like ** or * or - for lists
+- Keep responses concise and easy to read
+- Mention specific prices, features, and availability
+- Be enthusiastic but not pushy
+- Use natural transitions between products
+- Write in flowing paragraphs without special formatting"""
 
-FOR SINGLE PRODUCT QUERIES:
-- Provide the exact product name, full price information (including sales), detailed features, ratings, and availability
-- Explain key benefits and use cases
-- Compare with similar products if relevant
+    templates = {
+        'brief': PromptTemplate(
+            template=base_context + """
 
-FOR MULTIPLE PRODUCT QUERIES:
-- When customers ask for MULTIPLE products (e.g., "I need a coffee maker, headphones, and smartwatch"), provide comprehensive information about ALL requested products
-- Structure your response with clear sections for each product category:
-  
-  **COFFEE MAKERS:**
-  [Product details with name, price, features, rating, stock status]
-  
-  **HEADPHONES:**
-  [Product details with name, price, features, rating, stock status]
-  
-  **SMARTWATCHES:**
-  [Product details with name, price, features, rating, stock status]
+Keep your response very short and direct. Just give the essential information the customer needs in plain text. Maximum 2-3 sentences total with no formatting symbols.
 
-ESSENTIAL INFORMATION TO INCLUDE:
-- Exact product names and model information
-- Current prices and any sale prices (highlight savings)
-- Star ratings and number of reviews
-- Key features that matter to customers
-- Stock availability status
-- Why each product is recommended (based on features, value, ratings)
+Give a quick, helpful answer:""",
+            input_variables=["context", "question", "conversation_history"]
+        ),
+        
+        'summary': PromptTemplate(
+            template=base_context + """
 
-QUALITY STANDARDS:
-- Never say "I don't have information" if product details are available in the context
-- Always mention sale prices and savings when applicable
-- Be specific about features rather than generic
-- Organize information clearly and logically
-- Use natural, conversational language while being informative
-- If a product is out of stock, mention it clearly and suggest alternatives if available
+Provide a friendly, conversational response with key product details. For each product, mention the name, current price, top features that matter most to customers, and whether it's in stock. Keep it natural and flowing like you're explaining to someone in person. Use plain text only, no formatting symbols. Aim for 3-5 sentences per product.
 
-Provide detailed, comprehensive information about the requested products:""",
+Give a helpful, conversational summary:""",
+            input_variables=["context", "question", "conversation_history"]
+        ),
+        
+        'detailed': PromptTemplate(
+            template=base_context + """
+
+Since the customer wants detailed information, provide comprehensive details in a natural, conversational way. Include all specifications, features, benefits, use cases, and technical details. Write as if you're a knowledgeable friend sharing everything they should know about the product. Use only plain text with no special formatting.
+
+Provide detailed, comprehensive information:""",
+            input_variables=["context", "question", "conversation_history"]
+        ),
+        
+        'comparison': PromptTemplate(
+            template=base_context + """
+
+Help the customer compare products by naturally explaining the key differences, strengths of each option, and which might work better for different needs. Write conversationally as if you're helping them weigh their options in person. Use plain text only.
+
+Provide a helpful comparison to guide their decision:""",
             input_variables=["context", "question", "conversation_history"]
         )
+    }
+    
+    return templates
 
-        # Enhanced LLM configuration
+class SuperAccurateRetrievalQA:
+    def __init__(self, llm, vectorstore):
+        self.llm = llm
+        self.vectorstore = vectorstore
+        self.prompt_templates = create_enhanced_prompt_templates()
+    
+    def invoke(self, query):
+        global _conversation_history
+        
         try:
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash",
-                temperature=0.1,  # Lower temperature for more consistent responses
-                google_api_key=api_key,
-                max_tokens=1500  # More tokens for multi-product responses
+            if isinstance(query, dict):
+                query_text = query.get('query', str(query))
+            else:
+                query_text = str(query)
+            
+            intent = detect_query_intent(query_text)
+            docs = self.enhanced_retrieval_with_intent(query_text, intent, k=12)
+            
+            if docs:
+                context_parts = []
+                seen_products = set()
+                
+                for i, doc in enumerate(docs):
+                    product_name = doc.metadata.get('product_name', '').lower()
+                    if product_name and product_name in seen_products and intent['detail_level'] == 'brief':
+                        continue
+                    
+                    if product_name:
+                        seen_products.add(product_name)
+                    
+                    context_parts.append(f"Product {i+1}:")
+                    context_parts.append(doc.page_content)
+                    context_parts.append("")
+                
+                context = "\n".join(context_parts)
+            else:
+                context = "I don't have specific information about that product in our current catalog."
+            
+            history_text = ""
+            if _conversation_history:
+                history_text = "Previous conversation:\n" + "\n".join([
+                    f"{'Customer' if isinstance(msg, HumanMessage) else 'Me'}: {msg.content[:100]}..."
+                    for msg in _conversation_history[-2:]
+                ])
+            
+            template_key = 'summary'
+            if intent['wants_comparison']:
+                template_key = 'comparison'
+            elif intent['detail_level'] == 'brief':
+                template_key = 'brief'
+            elif intent['detail_level'] == 'detailed':
+                template_key = 'detailed'
+            
+            prompt_template = self.prompt_templates[template_key]
+            
+            prompt_text = prompt_template.format(
+                context=context,
+                question=query_text,
+                conversation_history=history_text
             )
-            print("LLM initialized successfully")
-        except Exception as e:
-            print(f"Error initializing LLM: {e}")
+            
+            temperature = 0.3 if intent['detail_level'] == 'brief' else 0.4
+            max_output_tokens = {
+                'brief': 200,
+                'summary': 600,
+                'detailed': 1000,
+                'comparison': 800
+            }.get(template_key, 600)
+            
+            query_llm = ChatGoogleGenerativeAI(
+                model="gemini-1.5-flash",
+                temperature=temperature,
+                google_api_key=os.getenv("GOOGLE_API_KEY"),
+                max_output_tokens=max_output_tokens
+            )
+            
+            response = query_llm.invoke([HumanMessage(content=prompt_text)])
+            
+            # Clean response to remove any asterisks or formatting symbols
+            cleaned_response = response.content
+            cleaned_response = re.sub(r'\*+', '', cleaned_response)  # Remove asterisks
+            cleaned_response = re.sub(r'^[\s\-\*]+', '', cleaned_response, flags=re.MULTILINE)  # Remove bullet points
+            cleaned_response = re.sub(r'\n[\s\-\*]+', '\n', cleaned_response)  # Clean line starts
+            
+            _conversation_history.append(HumanMessage(content=query_text))
+            _conversation_history.append(AIMessage(content=cleaned_response))
+            
+            if len(_conversation_history) > 6:
+                _conversation_history = _conversation_history[-6:]
+            
+            return {
+                "result": cleaned_response,
+                "source_documents": docs,
+                "intent": intent,
+                "template_used": template_key
+            }
+            
+        except Exception:
+            return {
+                "result": "Sorry, I'm having some technical difficulties right now. Could you try asking again?",
+                "source_documents": [],
+                "intent": {},
+                "template_used": "error"
+            }
+    
+    def enhanced_retrieval_with_intent(self, question: str, intent: dict, k: int = 15):
+        """Enhanced retrieval that considers user intent"""
+        try:
+            if intent['detail_level'] == 'brief':
+                k = min(k, 6)
+            elif intent['detail_level'] == 'detailed':
+                k = min(k * 2, 18)
+            
+            docs = enhanced_retrieval(question, k)
+            
+            if intent['wants_comparison']:
+                comparison_docs = []
+                single_product_docs = []
+                
+                for doc in docs:
+                    if 'catalog_summary' in doc.metadata.get('doc_type', ''):
+                        comparison_docs.insert(0, doc)
+                    elif 'detailed_product' in doc.metadata.get('doc_type', ''):
+                        comparison_docs.append(doc)
+                    else:
+                        single_product_docs.append(doc)
+                
+                docs = comparison_docs + single_product_docs[:max(0, k - len(comparison_docs))]
+            
+            return docs[:k]
+            
+        except Exception:
+            return enhanced_retrieval(question, k)
+
+def build_rag_chain():
+    """Build and return the RAG chain"""
+    global _qa_chain, _vectorstore
+    
+    try:
+        # Validate system health first
+        if not validate_system_health():
+            print("❌ System health check failed")
             return None
         
-        # Create custom retrieval chain with enhanced retrieval
-        class EnhancedRetrievalQA:
-            def __init__(self, llm, vectorstore, prompt_template):
-                self.llm = llm
-                self.vectorstore = vectorstore
-                self.prompt_template = prompt_template
-            
-            def invoke(self, query):
-                global _conversation_history
+        # Load products and generate keywords
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        products_path = os.path.join(current_dir, "products.json")
+        
+        with open(products_path, 'r', encoding='utf-8') as f:
+            products_data = json.load(f)
+        
+        generate_dynamic_keywords(products_data)
+        
+        # Initialize embeddings and LLM
+        api_key = os.getenv("GOOGLE_API_KEY")
+        embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/text-embedding-004",
+            google_api_key=api_key,
+            task_type="retrieval_document"
+        )
+        
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash",
+            temperature=0.3,
+            google_api_key=api_key,
+            max_output_tokens=1000
+        )
+        
+        # Create or load vector store
+        chroma_dir = os.path.join(os.path.dirname(current_dir), "chroma_db")
+        
+        if os.path.exists(chroma_dir):
+            _vectorstore = Chroma(
+                persist_directory=chroma_dir,
+                embedding_function=embeddings
+            )
+        else:
+            # Create vector store from products
+            documents = []
+            for product in products_data:
+                content = f"Product: {product['name']}\n"
+                content += f"Description: {product['description']}\n"
+                content += f"Price: ${product['price']}\n"
+                content += f"Category: {product['category']}\n"
                 
-                try:
-                    # Handle query format - could be string or dict
-                    if isinstance(query, dict):
-                        query_text = query.get('query', str(query))
-                    else:
-                        query_text = str(query)
-                    
-                    print(f"Processing query: {query_text}")
-                    
-                    # Enhanced retrieval with more documents for multi-product queries
-                    docs = enhanced_retrieval(query_text, k=12)
-                    print(f"Retrieved {len(docs)} documents")
-                    
-                    # Prepare context with better organization
-                    if docs:
-                        context_parts = []
-                        for i, doc in enumerate(docs):
-                            context_parts.append(f"=== DOCUMENT {i+1} ===")
-                            context_parts.append(doc.page_content)
-                            context_parts.append("")  # Empty line for separation
-                        
-                        context = "\n".join(context_parts)
-                    else:
-                        context = "No specific product information found in our catalog for this query."
-                    
-                    # Prepare conversation history
-                    history_text = ""
-                    if _conversation_history:
-                        history_text = "Recent conversation:\n" + "\n".join([
-                            f"{'User' if isinstance(msg, HumanMessage) else 'Assistant'}: {msg.content[:200]}..."
-                            for msg in _conversation_history[-4:]
-                        ])
-                    
-                    # Create prompt
-                    prompt_text = self.prompt_template.format(
-                        context=context,
-                        question=query_text,
-                        conversation_history=history_text
-                    )
-                    
-                    # Generate response
-                    response = self.llm.invoke([HumanMessage(content=prompt_text)])
-                    
-                    # Update conversation history
-                    _conversation_history.append(HumanMessage(content=query_text))
-                    _conversation_history.append(AIMessage(content=response.content))
-                    
-                    # Keep history manageable
-                    if len(_conversation_history) > 10:
-                        _conversation_history = _conversation_history[-10:]
-                    
-                    return {
-                        "result": response.content,
-                        "source_documents": docs
+                if product.get('features'):
+                    content += f"Features: {', '.join(product['features'])}\n"
+                
+                doc = Document(
+                    page_content=content,
+                    metadata={
+                        "product_name": product['name'],
+                        "category": product['category'],
+                        "price": product['price'],
+                        "doc_type": "product"
                     }
-                    
-                except Exception as e:
-                    print(f"Error in invoke method: {e}")
-                    traceback.print_exc()
-                    return {
-                        "result": "I apologize, but I'm experiencing technical difficulties. Please try your question again.",
-                        "source_documents": []
-                    }
+                )
+                documents.append(doc)
+            
+            # Create vector store
+            _vectorstore = Chroma.from_documents(
+                documents=documents,
+                embedding=embeddings,
+                persist_directory=chroma_dir
+            )
+            _vectorstore.persist()
         
-        _qa_chain = EnhancedRetrievalQA(llm, _vectorstore, enhanced_prompt)
+        # Create RAG chain
+        _qa_chain = SuperAccurateRetrievalQA(llm, _vectorstore)
         
-        print("Enhanced RAG chain with multi-product support built successfully")
         return _qa_chain
         
     except Exception as e:
-        print(f"Error building RAG chain: {e}")
+        print(f"❌ Error building RAG chain: {e}")
         traceback.print_exc()
         return None
 
-def get_answer(question):
-    """Enhanced function to get answers with better error handling"""
+def get_answer(question: str):
+    """Main function to get answers from the RAG system"""
     try:
-        print(f"Getting answer for question: {question}")
+        global _qa_chain
+        if _qa_chain is None:
+            _qa_chain = build_rag_chain()
+            if _qa_chain is None:
+                return {
+                    "answer": "Sorry, the system is not properly configured. Please check your setup.",
+                    "sources": [],
+                    "response_type": "error",
+                    "error": "System initialization failed"
+                }
         
-        # Handle different input formats
-        if isinstance(question, dict):
-            question_text = question.get('query', str(question))
-        else:
-            question_text = str(question) if question else ""
-        
-        if not question_text or not question_text.strip():
-            return {"error": "Empty question provided"}
-        
-        qa_chain = build_rag_chain()
-        if qa_chain is None:
-            return {"error": "RAG system not available - check logs for details"}
-        
-        result = qa_chain.invoke(question_text.strip())
+        result = _qa_chain.invoke(question)
         
         return {
-            "answer": result["result"],
-            "sources": len(result.get("source_documents", []))
+            "answer": result.get("result", "No answer available"),
+            "sources": [doc.metadata.get("product_name", "Unknown") for doc in result.get("source_documents", [])],
+            "response_type": result.get("template_used", "unknown"),
+            "intent": result.get("intent", {})
         }
         
     except Exception as e:
-        print(f"Error getting answer: {e}")
-        traceback.print_exc()
-        return {"error": f"Failed to process question: {str(e)}"}
+        return {
+            "answer": "Sorry, I encountered an error processing your question.",
+            "sources": [],
+            "response_type": "error",
+            "error": str(e)
+        }
 
-def reset_conversation():
-    """Reset conversation history"""
-    global _conversation_history
-    _conversation_history = []
-    print("Conversation history reset")
-
-# Add a test function to validate the system
-def test_rag_system():
-    """Test function to validate RAG system functionality"""
-    try:
-        print("Testing RAG system...")
-        chain = build_rag_chain()
-        if chain is None:
-            print("RAG system failed to initialize")
-            return False
+def test_super_accurate_rag():
+    """Test the RAG system with sample queries"""
+    test_questions = [
+        "What headphones do you have?",
+        "Tell me about wireless products",
+        "What's the most expensive item?",
+        "Compare gaming products"
+    ]
+    
+    print("Testing RAG System...")
+    
+    for i, question in enumerate(test_questions, 1):
+        print(f"\nTest {i}: {question}")
+        result = get_answer(question)
         
-        # Test multi-product query
-        test_result = get_answer("I need a coffee maker, headphones, and smartwatch")
-        if "error" in test_result:
-            print(f"RAG test failed: {test_result['error']}")
-            return False
-        
-        print("RAG system test passed successfully")
-        print(f"Test response: {test_result['answer'][:200]}...")
-        return True
-        
-    except Exception as e:
-        print(f"RAG system test failed with exception: {e}")
-        traceback.print_exc()
-        return False
-
-if __name__ == "__main__":
-    # Run test when script is executed directly
-    test_rag_system()
+        if "error" in result:
+            print(f"❌ Error: {result['error']}")
+        else:
+            print(f"✅ Answer: {result['answer'][:100]}...")
+            print(f"📚 Sources: {result['sources']}")
+    
+    print("\n✅ Testing completed!")

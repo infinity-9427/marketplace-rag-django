@@ -174,3 +174,34 @@ media/
 # Local development files
 local/
 dev/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Vector database
+chroma_db/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
