@@ -1,0 +1,38 @@
+{
+  "timestamp": "2025-06-08T17:20:58.948494",
+  "data": [
+    {
+      "name": "Sample Wireless Headphones",
+      "price": 99.99,
+      "description": "High-quality wireless headphones with noise cancellation",
+      "category": "Audio",
+      "in_stock": true,
+      "features": [
+        "Wireless",
+        "Noise Cancellation",
+        "Long Battery Life"
+      ],
+      "rating": 4.5,
+      "reviews": 0,
+      "id": "sample_1",
+      "brand": "SampleBrand",
+      "subcategory": "",
+      "image": "",
+      "_original": {
+        "id": "sample_1",
+        "name": "Sample Wireless Headphones",
+        "price": 99.99,
+        "description": "High-quality wireless headphones with noise cancellation",
+        "category": "Audio",
+        "in_stock": true,
+        "features": [
+          "Wireless",
+          "Noise Cancellation",
+          "Long Battery Life"
+        ],
+        "rating": 4.5,
+        "brand": "SampleBrand"
+      }
+    }
+  ]
+}

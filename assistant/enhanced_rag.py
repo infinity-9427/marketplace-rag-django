@@ -1,6 +1,6 @@
 import os
 import json
-import logging
+import logging  # This import was missing
 import traceback
 import re
 import time
@@ -11,13 +11,14 @@ from datetime import datetime
 from collections import defaultdict
 from sklearn.metrics.pairwise import cosine_similarity
 
-from langchain_community.vectorstores import Chroma
+# Updated imports for Pinecone
+from pinecone import Pinecone, ServerlessSpec
+from langchain_pinecone import PineconeVectorStore
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 from langchain.prompts import PromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain_community.vectorstores.utils import filter_complex_metadata
 
 from config import config
 from data_handler import DataHandler, DataSource
@@ -235,7 +236,7 @@ class PerformanceMonitor:
         return stats
 
 class EnhancedRAGSystem:
-    """Enhanced RAG System with product similarity recommendations"""
+    """Enhanced RAG System with Pinecone vector store and product similarity recommendations"""
     
     def __init__(self, data_source: Optional[Union[DataSource, str]] = None):
         self.data_handler = DataHandler()
@@ -246,18 +247,31 @@ class EnhancedRAGSystem:
         self.dynamic_keywords = {}
         self.category_keywords = {}
         
-        # Set default data source
+        # Initialize Pinecone client
+        self.pc = None
+        self.index = None
+        
+        # Set default data source to Supabase
         if data_source is None:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            default_path = os.path.join(current_dir, "products.json")
-            data_source = DataSource(source_type='file', location=default_path)
+            # Use Supabase as default data source
+            data_source = DataSource(
+                source_type='supabase', 
+                location='products',  # table name
+                cache_duration=300  # 5 minutes cache for real-time data
+            )
         elif isinstance(data_source, str):
-            data_source = DataSource(source_type='file', location=data_source)
+            # If string provided, check if it's a table name or file path
+            if data_source.endswith('.json'):
+                data_source = DataSource(source_type='file', location=data_source)
+            else:
+                # Assume it's a Supabase table name
+                data_source = DataSource(source_type='supabase', location=data_source)
         
         self.data_source = data_source
         
-        # Initialize models and similarity engine
+        # Initialize models and Pinecone
         self._initialize_models()
+        self._initialize_pinecone()
         self.similarity_engine = ProductSimilarityEngine(self.embeddings)
     
     def _initialize_models(self):
@@ -281,6 +295,39 @@ class EnhancedRAGSystem:
             logger.error(f"Error initializing AI models: {e}")
             raise
     
+    def _initialize_pinecone(self):
+        """Initialize Pinecone client and index"""
+        try:
+            # Initialize Pinecone client
+            self.pc = Pinecone(api_key=config.pinecone_api_key)
+            
+            # Get or create index
+            index_name = config.pinecone_index_name
+            
+            # Check if index exists
+            existing_indexes = [index.name for index in self.pc.list_indexes()]
+            
+            if index_name not in existing_indexes:
+                logger.info(f"Creating Pinecone index: {index_name}")
+                self.pc.create_index(
+                    name=index_name,
+                    dimension=768,  # Google embedding dimension
+                    metric="cosine",
+                    spec=ServerlessSpec(
+                        cloud="aws",
+                        region="us-east-1"
+                    )
+                )
+                logger.info(f"Created Pinecone index: {index_name}")
+            
+            # Connect to index
+            self.index = self.pc.Index(index_name)
+            logger.info(f"Connected to Pinecone index: {index_name}")
+            
+        except Exception as e:
+            logger.error(f"Error initializing Pinecone: {e}")
+            raise
+    
     def update_data_source(self, new_source: Union[DataSource, str]) -> bool:
         """Update data source and rebuild vector store"""
         try:
@@ -298,60 +345,95 @@ class EnhancedRAGSystem:
             return False
     
     def build_vector_store(self, force_rebuild: bool = False) -> bool:
-        """Build or load vector store with caching"""
+        """Build or load vector store with Pinecone"""
         try:
             start_time = self.performance_monitor.start_timer("build_vector_store")
+            logger.info("Initializing RAG system...")
             
-            # Generate cache key based on data source
-            cache_key = hashlib.md5(
-                f"{self.data_source.location}_{self.data_source.source_type}".encode()
-            ).hexdigest()
-            vector_store_path = f"{config.vector_db_path}_{cache_key}"
-            
-            # Load and process data
-            products_data = self.data_handler.load_data(self.data_source)
+            # Load and process data with error handling
+            try:
+                products_data = self.data_handler.load_data(self.data_source)
+            except Exception as e:
+                logger.error(f"Failed to load data from primary source: {e}")
+                # Try fallback to local file
+                fallback_source = DataSource(source_type='file', location='assistant/products.json')
+                try:
+                    products_data = self.data_handler.load_data(fallback_source)
+                    logger.info("Successfully loaded fallback data")
+                except Exception as fallback_error:
+                    logger.error(f"Fallback data loading failed: {fallback_error}")
+                    return False
             
             if not products_data:
-                raise ValueError("No data loaded from source")
+                logger.error("No product data available")
+                return False
+            
+            logger.info(f"Loaded {len(products_data)} products successfully")
             
             # Update similarity engine with new products
             self.similarity_engine.update_products(products_data)
             
-            # Check if vector store exists and is recent
-            if not force_rebuild and os.path.exists(vector_store_path):
-                try:
-                    self.vectorstore = Chroma(
-                        persist_directory=vector_store_path,
-                        embedding_function=self.embeddings
-                    )
-                    logger.info(f"Loaded existing vector store from {vector_store_path}")
-                    self.performance_monitor.end_timer("build_vector_store", start_time)
-                    return True
-                except Exception as e:
-                    logger.warning(f"Error loading existing vector store: {e}")
+            # Create vector store with Pinecone
+            try:
+                self.vectorstore = PineconeVectorStore(
+                    index=self.index,
+                    embedding=self.embeddings,
+                    text_key="text",
+                    namespace=""
+                )
+                logger.info("Pinecone vector store initialized")
+            except Exception as e:
+                logger.error(f"Error initializing Pinecone vector store: {e}")
+                return False
             
-            # Generate keywords
-            self._generate_dynamic_keywords(products_data)
+            # Check if we need to rebuild
+            try:
+                index_stats = self.index.describe_index_stats()
+                vector_count = index_stats.get('total_vector_count', 0)
+                
+                if force_rebuild or vector_count == 0:
+                    logger.info("Building/rebuilding vector store...")
+                    self._populate_vector_store(products_data)
+                else:
+                    logger.info(f"Vector store already populated with {vector_count} vectors")
+                
+            except Exception as e:
+                logger.error(f"Error checking/populating vector store: {e}")
+                # Continue anyway - we can still provide basic functionality
+                logger.warning("Continuing with limited functionality")
             
-            # Create documents
-            documents = self._create_documents(products_data)
-            
-            # Create vector store
-            self.vectorstore = Chroma.from_documents(
-                documents=documents,
-                embedding=self.embeddings,
-                persist_directory=vector_store_path
-            )
-            self.vectorstore.persist()
-            
-            logger.info(f"Created vector store with {len(documents)} documents")
             self.performance_monitor.end_timer("build_vector_store", start_time)
+            logger.info("RAG system initialization completed")
             return True
             
         except Exception as e:
             logger.error(f"Error building vector store: {e}")
             traceback.print_exc()
             return False
+    
+    def _populate_vector_store(self, products_data: List[Dict[str, Any]]):
+        """Populate vector store with product data"""
+        try:
+            # Generate keywords
+            self._generate_dynamic_keywords(products_data)
+            
+            # Create documents
+            documents = self._create_documents(products_data)
+            
+            # Clear existing vectors if rebuilding
+            if force_rebuild and vector_count > 0:
+                logger.info("Clearing existing vectors...")
+                self.index.delete(delete_all=True)
+            
+            # Add documents to Pinecone
+            if documents:
+                logger.info(f"Adding {len(documents)} documents to vector store...")
+                self.vectorstore.add_documents(documents)
+                logger.info("Documents added successfully")
+        
+        except Exception as e:
+            logger.error(f"Error populating vector store: {e}")
+            raise
     
     def _generate_dynamic_keywords(self, products_data: List[Dict[str, Any]]):
         """Generate dynamic keywords for product detection"""
@@ -436,7 +518,7 @@ class EnhancedRAGSystem:
         
         return "\n".join(content_parts)
     
-    def get_similar_products(self, product_name_or_id: str, top_k: int = 3) -> Dict[str, Any]:
+    def find_similar_products(self, product_name_or_id: str, top_k: int = 3) -> Dict[str, Any]:
         """Get similar products for a given product"""
         try:
             start_time = self.performance_monitor.start_timer("get_similar_products")
@@ -815,6 +897,229 @@ Example good recommendation:
         
         return base_prompt
 
+    def _enhanced_retrieval(self, question: str) -> List[Document]:
+        """Enhanced retrieval with Pinecone"""
+        try:
+            start_time = self.performance_monitor.start_timer("enhanced_retrieval")
+            
+            # Expand query with synonyms for better matching
+            expanded_query = self._expand_query_with_synonyms(question)
+            
+            # Use similarity search without score_threshold (not supported by PineconeVectorStore)
+            docs = self.vectorstore.similarity_search(
+                query=expanded_query,
+                k=12  # Increased from 8 for better recall
+            )
+            
+            # Extract documents and prioritize in-stock items
+            in_stock_docs = []
+            out_of_stock_docs = []
+            
+            for doc in docs:
+                if doc.metadata.get('in_stock', True):
+                    in_stock_docs.append(doc)
+                else:
+                    out_of_stock_docs.append(doc)
+            
+            # Prefer in-stock items but include out-of-stock as fallback
+            filtered_docs = in_stock_docs[:8] if in_stock_docs else out_of_stock_docs[:8]
+            
+            # If still no results, try with lower k value
+            if not filtered_docs:
+                docs_fallback = self.vectorstore.similarity_search(
+                    query=question,  # Use original question as fallback
+                    k=5
+                )
+                filtered_docs = docs_fallback
+            
+            self.performance_monitor.end_timer("enhanced_retrieval", start_time)
+            logger.debug(f"Retrieved {len(filtered_docs)} documents for query: {question}")
+            return filtered_docs
+                
+        except Exception as e:
+            logger.error(f"Error in enhanced retrieval: {e}")
+            return []
+    
+    def _expand_query_with_synonyms(self, question: str) -> str:
+        """Expand query with product-specific synonyms"""
+        query_lower = question.lower()
+        expanded_terms = [question]
+        
+        # Product type synonyms
+        synonyms = {
+            'camera': ['security camera', 'surveillance', 'video camera', 'webcam'],
+            'headphones': ['headset', 'earphones', 'earbuds', 'audio'],
+            'speaker': ['audio', 'sound system', 'bluetooth speaker'],
+            'phone': ['smartphone', 'mobile', 'cell phone'],
+            'laptop': ['computer', 'notebook', 'pc'],
+            'watch': ['smartwatch', 'fitness tracker', 'wearable']
+        }
+        
+        for term, related_terms in synonyms.items():
+            if term in query_lower:
+                expanded_terms.extend(related_terms)
+        
+        return ' '.join(expanded_terms)
+
+    def _generate_response(self, question: str, docs: List[Document], include_recommendations: bool = True) -> Dict[str, Any]:
+        """Generate response from retrieved documents"""
+        try:
+            if not docs:
+                return {
+                    "answer": "I couldn't find any relevant products for your question. Please try rephrasing or ask about our available products.",
+                    "sources": [],
+                    "response_type": "no_results"
+                }
+            
+            # Create context from documents
+            context = "\n\n".join([doc.page_content for doc in docs])
+            
+            # Get recommendations if enabled
+            recommendations_text = ""
+            if include_recommendations:
+                recommendations = self._get_contextual_recommendations(docs, question)
+                if recommendations:
+                    rec_texts = []
+                    for rec in recommendations:
+                        rec_texts.append(f"{rec['name']} (${rec['price']}) - {rec['recommendation_reason']}")
+                    recommendations_text = f"\n\nSIMILAR/ALTERNATIVE PRODUCTS:\n" + "\n".join(rec_texts)
+            
+            # Create enhanced prompt
+            intent = self._analyze_intent(question)
+            history = self._get_conversation_context()
+            prompt = self._create_enhanced_prompt(
+                question, context, intent, history, "", 
+                include_recommendations, recommendations_text
+            )
+            
+            # Generate response using LLM
+            response = self.llm.invoke(prompt)
+            answer = response.content if hasattr(response, 'content') else str(response)
+            
+            return {
+                "answer": answer,
+                "sources": [doc.metadata for doc in docs],
+                "response_type": intent.get('response_type', 'general')
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating response: {e}")
+            return {
+                "answer": "I encountered an error generating the response. Please try again.",
+                "sources": [],
+                "response_type": "error",
+                "error": str(e)
+            }
+    
+    def _analyze_intent(self, question: str) -> Dict[str, Any]:
+        """Analyze user intent from question"""
+        question_lower = question.lower()
+        
+        intent = {
+            'response_type': 'general',
+            'detail_level': 'brief',
+            'wants_comparison': False,
+            'price_focused': False
+        }
+        
+        # Detect comparison intent
+        comparison_words = ['compare', 'vs', 'versus', 'difference', 'better']
+        if any(word in question_lower for word in comparison_words):
+            intent['wants_comparison'] = True
+            intent['response_type'] = 'comparison'
+        
+        # Detect detail level
+        detail_words = ['detailed', 'tell me more', 'explain', 'specifications']
+        if any(word in question_lower for word in detail_words):
+            intent['detail_level'] = 'detailed'
+        
+        # Detect price focus
+        price_words = ['price', 'cost', 'cheap', 'expensive', 'budget', '$']
+        if any(word in question_lower for word in price_words):
+            intent['price_focused'] = True
+        
+        return intent
+    
+    def _get_conversation_context(self) -> str:
+        """Get recent conversation history"""
+        if not self.conversation_history:
+            return ""
+        
+        # Get last 3 exchanges
+        recent_history = self.conversation_history[-3:]
+        context_parts = []
+        
+        for entry in recent_history:
+            context_parts.append(f"Previous Q: {entry['question']}")
+            context_parts.append(f"Previous A: {entry['answer'][:100]}...")
+        
+        return "\n".join(context_parts) if context_parts else ""
+    
+    def _update_conversation_history(self, question: str, answer: str):
+        """Update conversation history"""
+        self.conversation_history.append({
+            'question': question,
+            'answer': answer,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+        # Keep only last 10 exchanges
+        if len(self.conversation_history) > 10:
+            self.conversation_history = self.conversation_history[-10:]
+    
+    def health_check(self) -> Dict[str, Any]:
+        """Perform system health check"""
+        try:
+            # Check if vector store is initialized
+            vectorstore_status = self.vectorstore is not None
+            
+            # Check Pinecone connection
+            pinecone_status = False
+            vector_count = 0
+            try:
+                if self.index:
+                    stats = self.index.describe_index_stats()
+                    vector_count = stats.get('total_vector_count', 0)
+                    pinecone_status = True
+            except Exception:
+                pass
+            
+            # Check data source
+            data_status = False
+            product_count = 0
+            try:
+                products = self.data_handler.load_data(self.data_source)
+                product_count = len(products)
+                data_status = True
+            except Exception:
+                pass
+            
+            overall_status = "healthy" if all([vectorstore_status, pinecone_status, data_status]) else "unhealthy"
+            
+            return {
+                "status": overall_status,
+                "components": {
+                    "vectorstore": "ok" if vectorstore_status else "error",
+                    "pinecone": "ok" if pinecone_status else "error",
+                    "data_source": "ok" if data_status else "error"
+                },
+                "metrics": {
+                    "vector_count": vector_count,
+                    "product_count": product_count
+                },
+                "performance": self.performance_monitor.get_stats()
+            }
+            
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": str(e)
+            }
+    
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get performance statistics"""
+        return self.performance_monitor.get_stats()
+
 # Global RAG system instance
 _rag_system = None
 
@@ -882,254 +1187,3 @@ def get_similar_products(product_name_or_id: str, top_k: int = 3) -> Dict[str, A
             "error": str(e),
             "similar_products": []
         }
-
-# Add missing methods to EnhancedRAGSystem class
-def _enhanced_retrieval(self, question: str) -> List[Document]:
-    """Enhanced retrieval with multiple strategies"""
-    try:
-        start_time = self.performance_monitor.start_timer("enhanced_retrieval")
-        
-        # Use similarity search with metadata filtering
-        retriever = self.vectorstore.as_retriever(
-            search_type="similarity",
-            search_kwargs={
-                "k": 8,
-                "filter": {"in_stock": True}  # Only get in-stock products
-            }
-        )
-        
-        docs = retriever.get_relevant_documents(question)
-        
-        # If no results, try without stock filter
-        if not docs:
-            retriever = self.vectorstore.as_retriever(
-                search_type="similarity",
-                search_kwargs={"k": 8}
-            )
-            docs = retriever.get_relevant_documents(question)
-        
-        self.performance_monitor.end_timer("enhanced_retrieval", start_time)
-        return docs
-        
-    except Exception as e:
-        logger.error(f"Error in enhanced retrieval: {e}")
-        return []
-
-def _generate_response(self, question: str, docs: List[Document], 
-                      include_recommendations: bool = True) -> Dict[str, Any]:
-    """Generate response with contextual recommendations"""
-    try:
-        start_time = self.performance_monitor.start_timer("generate_response")
-        
-        # Create context from documents
-        context = self._create_context_from_docs(docs)
-        
-        # Get intent and conversation history
-        intent = self._analyze_intent(question)
-        history = self._get_conversation_context()
-        
-        # Get recommendations if enabled
-        recommendations_text = ""
-        if include_recommendations and docs:
-            recommendations = self._get_contextual_recommendations(docs, question)
-            if recommendations:
-                recommendations_text = self._format_recommendations_for_prompt(recommendations)
-        
-        # Create enhanced prompt
-        prompt = self._create_enhanced_prompt(
-            question, context, intent, history, "", 
-            include_recommendations, recommendations_text
-        )
-        
-        # Generate response
-        response = self.llm.invoke([HumanMessage(content=prompt)])
-        answer = response.content.strip()
-        
-        # Extract sources
-        sources = [
-            {
-                "product_name": doc.metadata.get('product_name', 'Unknown'),
-                "category": doc.metadata.get('category', 'Unknown'),
-                "price": doc.metadata.get('price', 0),
-                "content": doc.page_content[:200] + "..."
-            }
-            for doc in docs[:3]
-        ]
-        
-        self.performance_monitor.end_timer("generate_response", start_time)
-        
-        return {
-            "answer": answer,
-            "sources": sources,
-            "response_type": "success",
-            "intent": intent
-        }
-        
-    except Exception as e:
-        logger.error(f"Error generating response: {e}")
-        return {
-            "answer": "I apologize, but I encountered an error while generating a response.",
-            "sources": [],
-            "response_type": "error",
-            "error": str(e)
-        }
-
-def _create_context_from_docs(self, docs: List[Document]) -> str:
-    """Create context string from documents"""
-    if not docs:
-        return "No relevant products found."
-    
-    context_parts = []
-    seen_products = set()
-    
-    for doc in docs[:6]:  # Limit to top 6 docs
-        product_name = doc.metadata.get('product_name', 'Unknown Product')
-        
-        # Avoid duplicates
-        if product_name in seen_products:
-            continue
-        seen_products.add(product_name)
-        
-        # Format product info
-        context_parts.append(f"Product: {product_name}")
-        context_parts.append(f"Price: ${doc.metadata.get('price', 0):.2f}")
-        context_parts.append(f"Category: {doc.metadata.get('category', 'Unknown')}")
-        context_parts.append(f"Details: {doc.page_content[:300]}")
-        context_parts.append("---")
-    
-    return "\n".join(context_parts)
-
-def _format_recommendations_for_prompt(self, recommendations: List[Dict[str, Any]]) -> str:
-    """Format recommendations for inclusion in prompt"""
-    if not recommendations:
-        return ""
-    
-    rec_parts = ["SIMILAR/ALTERNATIVE PRODUCTS:"]
-    
-    for rec in recommendations:
-        rec_parts.append(
-            f"- {rec['name']} (${rec['price']:.2f}) - {rec['recommendation_reason']}"
-        )
-    
-    return "\n".join(rec_parts) + "\n"
-
-def _analyze_intent(self, question: str) -> Dict[str, Any]:
-    """Analyze user intent from question"""
-    question_lower = question.lower()
-    
-    intent = {
-        'wants_comparison': any(word in question_lower for word in ['compare', 'vs', 'versus', 'difference', 'better']),
-        'wants_recommendation': any(word in question_lower for word in ['recommend', 'suggest', 'best', 'good']),
-        'price_sensitive': any(word in question_lower for word in ['cheap', 'affordable', 'budget', 'price', 'cost']),
-        'detail_level': 'detailed' if any(word in question_lower for word in ['detail', 'spec', 'feature']) else 'brief'
-    }
-    
-    return intent
-
-def _get_conversation_context(self) -> str:
-    """Get recent conversation context"""
-    if not self.conversation_history:
-        return ""
-    
-    # Get last 2 exchanges
-    recent_history = self.conversation_history[-4:]  # 2 Q&A pairs
-    
-    context_parts = ["RECENT CONVERSATION:"]
-    for i in range(0, len(recent_history), 2):
-        if i + 1 < len(recent_history):
-            context_parts.append(f"Q: {recent_history[i]}")
-            context_parts.append(f"A: {recent_history[i+1][:150]}...")
-    
-    return "\n".join(context_parts) + "\n" if len(context_parts) > 1 else ""
-
-def _update_conversation_history(self, question: str, answer: str):
-    """Update conversation history"""
-    self.conversation_history.extend([question, answer])
-    
-    # Keep only last 10 exchanges (20 items)
-    if len(self.conversation_history) > 20:
-        self.conversation_history = self.conversation_history[-20:]
-
-def health_check(self) -> Dict[str, Any]:
-    """System health check"""
-    try:
-        health_status = {
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
-            "components": {}
-        }
-        
-        # Check vector store
-        if self.vectorstore:
-            try:
-                # Test query
-                test_docs = self.vectorstore.similarity_search("test", k=1)
-                health_status["components"]["vector_store"] = {
-                    "status": "healthy",
-                    "document_count": len(test_docs)
-                }
-            except Exception as e:
-                health_status["components"]["vector_store"] = {
-                    "status": "unhealthy",
-                    "error": str(e)
-                }
-                health_status["status"] = "degraded"
-        else:
-            health_status["components"]["vector_store"] = {
-                "status": "not_initialized"
-            }
-            health_status["status"] = "unhealthy"
-        
-        # Check similarity engine
-        if self.similarity_engine and self.similarity_engine.product_data:
-            health_status["components"]["similarity_engine"] = {
-                "status": "healthy",
-                "product_count": len(self.similarity_engine.product_data)
-            }
-        else:
-            health_status["components"]["similarity_engine"] = {
-                "status": "not_initialized"
-            }
-            if health_status["status"] == "healthy":
-                health_status["status"] = "degraded"
-        
-        # Check AI models
-        try:
-            test_embedding = self.embeddings.embed_query("test")
-            health_status["components"]["embeddings"] = {
-                "status": "healthy",
-                "embedding_dimension": len(test_embedding)
-            }
-        except Exception as e:
-            health_status["components"]["embeddings"] = {
-                "status": "unhealthy",
-                "error": str(e)
-            }
-            health_status["status"] = "unhealthy"
-        
-        return health_status
-        
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
-
-def get_performance_stats(self) -> Dict[str, Any]:
-    """Get performance statistics"""
-    return {
-        "performance_stats": self.performance_monitor.get_stats(),
-        "timestamp": datetime.now().isoformat()
-    }
-
-# Add missing methods to EnhancedRAGSystem class
-EnhancedRAGSystem._enhanced_retrieval = _enhanced_retrieval
-EnhancedRAGSystem._generate_response = _generate_response
-EnhancedRAGSystem._create_context_from_docs = _create_context_from_docs
-EnhancedRAGSystem._format_recommendations_for_prompt = _format_recommendations_for_prompt
-EnhancedRAGSystem._analyze_intent = _analyze_intent
-EnhancedRAGSystem._get_conversation_context = _get_conversation_context
-EnhancedRAGSystem._update_conversation_history = _update_conversation_history
-EnhancedRAGSystem.health_check = health_check
-EnhancedRAGSystem.get_performance_stats = get_performance_stats

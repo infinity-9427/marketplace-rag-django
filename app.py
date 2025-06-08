@@ -228,14 +228,18 @@ def update_data_source():
         
         # Create data source
         if isinstance(data, str):
-            data_source = DataSource(source_type='file', location=data)
+            # Check if it's a file path or table name
+            if data.endswith('.json'):
+                data_source = DataSource(source_type='file', location=data)
+            else:
+                data_source = DataSource(source_type='supabase', location=data)
         else:
             data_source = DataSource(
-                source_type=data.get('type', 'file'),
-                location=data.get('location', ''),
+                source_type=data.get('type', 'supabase'),
+                location=data.get('location', 'products'),
                 headers=data.get('headers'),
                 auth=data.get('auth'),
-                cache_duration=data.get('cache_duration', 3600)
+                cache_duration=data.get('cache_duration', 300)
             )
         
         # Update RAG system
@@ -270,6 +274,41 @@ def update_data_source():
         logger.error(f"Error updating data source: {e}")
         return jsonify({
             "error": f"Failed to update data source: {str(e)}",
+            "status": "error",
+            "request_id": g.request_id
+        }), 500
+
+@app.route('/api/data-sources', methods=['GET'])
+def get_available_data_sources():
+    """Get available data sources"""
+    try:
+        return jsonify({
+            "data_sources": [
+                {
+                    "type": "supabase",
+                    "name": "Supabase Products Table",
+                    "location": "products",
+                    "description": "Real-time product data from Supabase database"
+                },
+                {
+                    "type": "file",
+                    "name": "Local JSON File",
+                    "location": "assistant/products.json",
+                    "description": "Local JSON file with product data"
+                }
+            ],
+            "current_source": {
+                "type": "supabase",
+                "location": "products"
+            },
+            "status": "success",
+            "request_id": g.request_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting data sources: {e}")
+        return jsonify({
+            "error": str(e),
             "status": "error",
             "request_id": g.request_id
         }), 500
