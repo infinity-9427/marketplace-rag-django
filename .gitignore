@@ -159,6 +159,7 @@ logs/
 *.log
 
 # API keys and secrets
+.env
 .env.local
 .env.production
 secrets.json

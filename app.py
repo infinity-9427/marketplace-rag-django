@@ -81,9 +81,34 @@ def health_check():
             "request_id": g.request_id
         }), 500
 
+@app.route('/api/recommendations/<product_id>', methods=['GET'])
+def get_product_recommendations(product_id):
+    """Get recommendations for a specific product"""
+    try:
+        top_k = request.args.get('top_k', 3, type=int)
+        top_k = min(max(top_k, 1), 10)  # Limit between 1-10
+        
+        from assistant.enhanced_rag import get_similar_products
+        result = get_similar_products(product_id, top_k=top_k)
+        
+        result.update({
+            "request_id": g.request_id,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error getting recommendations: {e}")
+        return jsonify({
+            "error": f"Failed to get recommendations: {str(e)}",
+            "status": "error",
+            "request_id": g.request_id
+        }), 500
+
 @app.route('/api/ask', methods=['POST'])
 def ask_question_post():
-    """Enhanced POST endpoint for asking questions"""
+    """Enhanced POST endpoint for asking questions with recommendations"""
     try:
         # Validate request
         if not request.is_json:
@@ -110,6 +135,9 @@ def ask_question_post():
                 "request_id": g.request_id
             }), 400
         
+        # Extract options
+        include_recommendations = data.get('include_recommendations', True)
+        
         # Extract optional data source
         data_source = None
         if 'data_source' in data:
@@ -125,8 +153,8 @@ def ask_question_post():
                     cache_duration=ds_config.get('cache_duration', 3600)
                 )
         
-        # Get answer
-        result = get_answer(question, data_source)
+        # Get answer with recommendations
+        result = get_answer(question, data_source, include_recommendations)
         
         # Add metadata
         result.update({
