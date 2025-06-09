@@ -1,6 +1,6 @@
 import os
 import json
-import logging  # This import was missing
+import logging
 import traceback
 import re
 import time
@@ -23,15 +23,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from config import config
 from data_handler import DataHandler, DataSource
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('rag_system.log'),
-        logging.StreamHandler()
-    ]
-)
+# Configure in-memory logging only (no file generation)
 logger = logging.getLogger(__name__)
 
 class ProductSimilarityEngine:
@@ -113,7 +105,7 @@ class ProductSimilarityEngine:
                 continue
             
             # Skip out of stock products
-            if not other_product.get('in_stock', True):
+            if not other_product.get('inStock', True):
                 continue
             
             # Compute similarity
@@ -234,7 +226,7 @@ class EnhancedRAGSystem:
     """Enhanced RAG System with Pinecone vector store and product similarity recommendations"""
     
     def __init__(self, data_source: Optional[Union[DataSource, str]] = None):
-        self.data_handler = DataHandler()
+        self.data_handler = DataHandler(enable_cache=False)  # Disable file caching
         self.performance_monitor = PerformanceMonitor()
         self.vectorstore = None
         self.qa_chain = None
@@ -248,18 +240,15 @@ class EnhancedRAGSystem:
         
         # Set default data source to Supabase
         if data_source is None:
-            # Use Supabase as default data source
             data_source = DataSource(
                 source_type='supabase', 
-                location='products',  # table name
-                cache_duration=300  # 5 minutes cache for real-time data
+                location='products',
+                cache_duration=300
             )
         elif isinstance(data_source, str):
-            # If string provided, check if it's a table name or file path
             if data_source.endswith('.json'):
                 data_source = DataSource(source_type='file', location=data_source)
             else:
-                # Assume it's a Supabase table name
                 data_source = DataSource(source_type='supabase', location=data_source)
         
         self.data_source = data_source
@@ -306,7 +295,7 @@ class EnhancedRAGSystem:
                 logger.info(f"Creating Pinecone index: {index_name}")
                 self.pc.create_index(
                     name=index_name,
-                    dimension=768,  # Google embedding dimension
+                    dimension=768,
                     metric="cosine",
                     spec=ServerlessSpec(
                         cloud="aws",
@@ -350,13 +339,12 @@ class EnhancedRAGSystem:
                 products_data = self.data_handler.load_data(self.data_source)
             except Exception as e:
                 logger.error(f"Failed to load data from primary source: {e}")
-                # Try fallback to local file
                 fallback_source = DataSource(source_type='file', location='assistant/products.json')
                 try:
                     products_data = self.data_handler.load_data(fallback_source)
-                    logger.info("Successfully loaded fallback data")
+                    logger.info("Using fallback data source")
                 except Exception as fallback_error:
-                    logger.error(f"Fallback data loading failed: {fallback_error}")
+                    logger.error(f"Fallback also failed: {fallback_error}")
                     return False
             
             if not products_data:
@@ -387,14 +375,13 @@ class EnhancedRAGSystem:
                 vector_count = index_stats.get('total_vector_count', 0)
                 
                 if force_rebuild or vector_count == 0:
-                    logger.info("Building/rebuilding vector store...")
-                    self._populate_vector_store(products_data)
+                    logger.info("Populating vector store...")
+                    self._populate_vector_store(products_data, force_rebuild, vector_count)
                 else:
-                    logger.info(f"Vector store already populated with {vector_count} vectors")
+                    logger.info(f"Using existing vector store with {vector_count} vectors")
                 
             except Exception as e:
                 logger.error(f"Error checking/populating vector store: {e}")
-                # Continue anyway - we can still provide basic functionality
                 logger.warning("Continuing with limited functionality")
             
             self.performance_monitor.end_timer("build_vector_store", start_time)
@@ -406,7 +393,7 @@ class EnhancedRAGSystem:
             traceback.print_exc()
             return False
     
-    def _populate_vector_store(self, products_data: List[Dict[str, Any]]):
+    def _populate_vector_store(self, products_data: List[Dict[str, Any]], force_rebuild: bool, vector_count: int):
         """Populate vector store with product data"""
         try:
             # Generate keywords
@@ -449,9 +436,8 @@ class EnhancedRAGSystem:
             
             # Add key features
             if product.get('features'):
-                for feature in product['features'][:3]:  # Top 3 features
-                    feature_words = feature.lower().split()
-                    keywords.extend([word for word in feature_words if len(word) > 3])
+                for feature in product['features'][:3]:
+                    keywords.append(feature.lower())
             
             self.dynamic_keywords[product_id] = list(set(keywords))
     
@@ -467,7 +453,7 @@ class EnhancedRAGSystem:
                 'product_name': product['name'],
                 'category': product['category'],
                 'price': product['price'],
-                'in_stock': product.get('in_stock', True),
+                'in_stock': product.get('inStock', True),
                 'doc_type': 'product'
             }
             
@@ -490,7 +476,7 @@ class EnhancedRAGSystem:
         return documents
     
     def _create_product_content(self, product: Dict[str, Any]) -> str:
-        """Create rich content for a product"""
+        """Create rich content for a product - STRICT DATA ONLY"""
         content_parts = [
             f"Product: {product['name']}",
             f"Price: ${product['price']:.2f}",
@@ -504,8 +490,16 @@ class EnhancedRAGSystem:
         if product.get('features'):
             content_parts.append(f"Features: {', '.join(product['features'])}")
         
-        if not product.get('in_stock', True):
+        if not product.get('inStock', True):
             content_parts.append("Status: Out of Stock")
+        
+        # Add specifications if available
+        if product.get('specifications'):
+            specs = []
+            for key, value in product['specifications'].items():
+                specs.append(f"{key}: {value}")
+            if specs:
+                content_parts.append(f"Specifications: {', '.join(specs)}")
         
         return "\n".join(content_parts)
 
@@ -839,51 +833,39 @@ class EnhancedRAGSystem:
     def _create_enhanced_prompt(self, question: str, context: str, intent: Dict[str, Any], 
                                history: str, unavailable_info: str, 
                                include_recommendations: bool, recommendations_text: str = "") -> str:
-        """Create enhanced prompt with better recommendation guidance"""
+        """Create enhanced prompt with STRICT data adherence"""
         
-        base_prompt = f"""You are a friendly and knowledgeable electronics store assistant. Respond naturally and conversationally.
+        base_prompt = f"""You are a helpful electronics store assistant. IMPORTANT: Only use information provided in the product data below. Do not invent or hallucinate any details not explicitly stated.
 
 {history}
 
-AVAILABLE PRODUCTS:
+AVAILABLE PRODUCTS (USE ONLY THIS DATA):
 {context}
 
 {recommendations_text}
 
-{unavailable_info}
-
 CUSTOMER QUESTION: {question}
 
-Guidelines:
-- Write naturally without formatting symbols (no *, -, or markdown)
-- Focus on products that directly answer the customer's question
-- Be helpful and accurate with specific prices and features
-- When mentioning products from "SIMILAR/ALTERNATIVE PRODUCTS", explain WHY they're good alternatives
-- Always stay within the same product category (headphones with headphones, cameras with cameras, etc.)
-- Use natural language like "You might also consider the [product name] which offers [specific benefit]"
-- Compare key features that matter to the customer (price, battery life, quality, etc.)
-- If a customer asks about noise-canceling headphones, suggest other noise-canceling headphones
-- Don't suggest unrelated products
+STRICT GUIDELINES:
+- Only mention prices, features, and specifications that are explicitly listed in the product data
+- DO NOT invent ratings, reviews, or customer feedback
+- DO NOT add battery life, performance metrics, or technical details not in the data
+- If a detail is not provided, say "I don't have that information" instead of guessing
+- Focus on the actual product name, price, category, brand, and listed features only
+- When recommending alternatives, explain based only on actual product differences (price, category, listed features)
+- Use natural language without markdown formatting
 
-Example good recommendation:
-"The Wireless Noise-Canceling Headphones at $299.99 have excellent 30-hour battery and 4.8/5 rating. You might also consider the Studio Pro Headphones at $249.99 which offer similar noise cancellation but with a more compact design."
+Example of correct response:
+"The Smart Fitness Tracker costs $199.99 and includes GPS, heart rate monitoring, sleep analysis, and 7-day battery life. For a more budget-friendly option, there's the Basic Fitness Band at $49.99 with step tracking, calorie tracking, heart rate monitoring, and sleep tracking."
 """
         
         if include_recommendations and recommendations_text:
             base_prompt += """
-- Always mention relevant alternatives that enhance the customer's options
-- Explain the key differences and benefits clearly
-- Help customers understand their choices within the product category they're interested in
+- When mentioning similar products, only compare based on actual data provided
+- Explain alternatives using only the features and specifications listed
 """
         
-        if intent.get('detail_level') == 'brief':
-            base_prompt += "\nKeep response concise but informative."
-        elif intent.get('detail_level') == 'detailed':
-            base_prompt += "\nProvide comprehensive details and thorough comparisons."
-        elif intent.get('wants_comparison'):
-            base_prompt += "\nFocus on detailed comparisons between related products."
-        
-        base_prompt += "\n\nProvide a helpful response with relevant product recommendations:"
+        base_prompt += "\n\nProvide a helpful response using ONLY the information provided above:"
         
         return base_prompt
 

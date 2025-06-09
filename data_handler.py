@@ -24,11 +24,16 @@ class DataSource:
     config: Optional[Dict[str, str]] = None  # For database specific config
 
 class DataHandler:
-    """Enhanced data handler with flexible database abstraction"""
+    """Enhanced data handler with optional caching"""
     
-    def __init__(self, cache_dir: str = "cache"):
+    def __init__(self, cache_dir: str = "cache", enable_cache: bool = True):
+        self.enable_cache = enable_cache
         self.cache_dir = cache_dir
-        os.makedirs(cache_dir, exist_ok=True)
+        self.in_memory_cache = {}  # Use in-memory cache instead of files
+        
+        if enable_cache:
+            os.makedirs(cache_dir, exist_ok=True)
+        
         self.db_manager: Optional[DatabaseManager] = None
         self._initialize_database()
         
@@ -44,40 +49,68 @@ class DataHandler:
             logger.error(f"Error initializing database: {e}")
             self.db_manager = None
     
+    def _get_cache_key(self, source_key: str) -> str:
+        """Generate cache key"""
+        return hashlib.md5(source_key.encode()).hexdigest()
+    
     def _get_cache_path(self, source_key: str) -> str:
         """Generate cache file path"""
-        hash_key = hashlib.md5(source_key.encode()).hexdigest()
+        hash_key = self._get_cache_key(source_key)
         return os.path.join(self.cache_dir, f"data_cache_{hash_key}.json")
     
-    def _is_cache_valid(self, cache_path: str, max_age: int) -> bool:
-        """Check if cache is still valid"""
-        if not os.path.exists(cache_path):
+    def _is_cache_valid(self, cache_key: str, max_age: int) -> bool:
+        """Check if in-memory cache is still valid"""
+        if not self.enable_cache or cache_key not in self.in_memory_cache:
             return False
         
-        cache_time = os.path.getmtime(cache_path)
+        cache_data = self.in_memory_cache[cache_key]
+        cache_time = cache_data.get('timestamp', 0)
         return (datetime.now().timestamp() - cache_time) < max_age
     
-    def _load_from_cache(self, cache_path: str) -> Optional[List[Dict[str, Any]]]:
-        """Load data from cache"""
+    def _load_from_cache(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
+        """Load data from in-memory cache"""
         try:
-            with open(cache_path, 'r', encoding='utf-8') as f:
-                cached_data = json.load(f)
-                logger.info(f"Loaded data from cache: {cache_path}")
-                return cached_data.get('data', [])
+            if cache_key in self.in_memory_cache:
+                logger.info(f"Loaded data from memory cache")
+                return self.in_memory_cache[cache_key].get('data', [])
         except Exception as e:
-            logger.error(f"Error loading cache: {e}")
-            return None
+            logger.error(f"Error loading from memory cache: {e}")
+        
+        # Fallback to file cache if enabled
+        if self.enable_cache:
+            try:
+                cache_path = self._get_cache_path(cache_key)
+                if os.path.exists(cache_path):
+                    with open(cache_path, 'r', encoding='utf-8') as f:
+                        cached_data = json.load(f)
+                        logger.info(f"Loaded data from file cache: {cache_path}")
+                        return cached_data.get('data', [])
+            except Exception as e:
+                logger.error(f"Error loading file cache: {e}")
+        
+        return None
     
-    def _save_to_cache(self, cache_path: str, data: List[Dict[str, Any]]) -> None:
-        """Save data to cache"""
+    def _save_to_cache(self, cache_key: str, data: List[Dict[str, Any]]) -> None:
+        """Save data to in-memory cache (and optionally file cache)"""
         try:
+            # Always save to memory cache
             cache_data = {
-                'timestamp': datetime.now().isoformat(),
+                'timestamp': datetime.now().timestamp(),
                 'data': data
             }
-            with open(cache_path, 'w', encoding='utf-8') as f:
-                json.dump(cache_data, f, indent=2)
-            logger.info(f"Saved data to cache: {cache_path}")
+            self.in_memory_cache[cache_key] = cache_data
+            logger.info(f"Saved data to memory cache")
+            
+            # Optionally save to file cache
+            if self.enable_cache:
+                cache_path = self._get_cache_path(cache_key)
+                cache_file_data = {
+                    'timestamp': datetime.now().isoformat(),
+                    'data': data
+                }
+                with open(cache_path, 'w', encoding='utf-8') as f:
+                    json.dump(cache_file_data, f, indent=2)
+                logger.info(f"Saved data to file cache: {cache_path}")
         except Exception as e:
             logger.error(f"Error saving cache: {e}")
     
@@ -92,24 +125,30 @@ class DataHandler:
                 # Default to database with table name
                 source = DataSource(source_type='database', location=source)
         
+        cache_key = self._get_cache_key(f"{source.source_type}_{source.location}")
+        
+        # Check cache first
+        if self._is_cache_valid(cache_key, source.cache_duration):
+            cached_data = self._load_from_cache(cache_key)
+            if cached_data:
+                return cached_data
+        
         try:
             # Try to load from primary data source
             data = self._load_from_source(source)
             if data:
                 # Normalize and cache the data
                 normalized_data = self._normalize_data(data, source.source_type)
-                cache_path = self._get_cache_path(f"{source.source_type}_{source.location}")
-                self._save_to_cache(cache_path, normalized_data)
+                self._save_to_cache(cache_key, normalized_data)
                 return normalized_data
         except Exception as e:
             logger.error(f"Error loading from {source.source_type}: {e}")
         
-        # Fallback to cache
-        cache_path = self._get_cache_path(f"{source.source_type}_{source.location}")
-        if self._is_cache_valid(cache_path, source.cache_duration):
-            cached_data = self._load_from_cache(cache_path)
-            if cached_data:
-                return cached_data
+        # Fallback to any cached data (even if expired)
+        cached_data = self._load_from_cache(cache_key)
+        if cached_data:
+            logger.warning("Using expired cache data as fallback")
+            return cached_data
         
         # Final fallback
         logger.warning("Using minimal fallback data")
@@ -215,7 +254,7 @@ class DataHandler:
             except:
                 specifications = {}
         
-        # Build normalized item with only fields that exist in our data
+        # Build normalized item with ONLY actual data fields
         normalized = {
             'id': str(item.get('id', '')),
             'name': str(item.get('name', '')),
@@ -238,9 +277,6 @@ class DataHandler:
                 item.get('price', 0)
             ),
             'search_text': self._build_search_text(item, features, tags),
-            
-            # Preserve original for debugging
-            '_original': item
         }
         
         return normalized
