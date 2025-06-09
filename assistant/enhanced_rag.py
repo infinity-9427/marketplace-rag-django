@@ -1015,11 +1015,12 @@ class EnhancedRAGSystem:
         return ' '.join(expanded_terms)
     
     def _generate_response(self, question: str, docs: List[Document], include_recommendations: bool = True) -> Dict[str, Any]:
-        """Generate response from retrieved documents with fresh context"""
+        """Generate response with improved natural language and customer focus"""
         try:
             if not docs:
+                # Provide helpful no-results response with suggestions
                 return {
-                    "answer": "I couldn't find any products matching your query. Could you please be more specific or try different keywords?",
+                    "answer": "I couldn't find any products matching that description. Could you try being more specific? For example, you could mention the type of device, your budget range, or any specific features you're looking for.",
                     "sources": [],
                     "response_type": "no_results",
                     "products": []
@@ -1030,7 +1031,7 @@ class EnhancedRAGSystem:
             products_found = []
             
             for doc in docs:
-                context_parts.append(f"Document: {doc.page_content}")
+                context_parts.append(f"Product: {doc.page_content}")
                 
                 # Extract product info from metadata
                 if doc.metadata.get('product_id'):
@@ -1056,6 +1057,9 @@ class EnhancedRAGSystem:
                 response = self.llm.invoke(messages)
                 answer = response.content.strip()
                 
+                # Post-process answer to remove any technical information that slipped through
+                answer = self._clean_response(answer)
+                
                 return {
                     "answer": answer,
                     "sources": [doc.metadata for doc in docs],
@@ -1067,153 +1071,356 @@ class EnhancedRAGSystem:
             except Exception as e:
                 logger.error(f"LLM generation failed: {e}")
                 return {
-                    "answer": "I found some relevant products but encountered an error generating the response. Please try again.",
+                    "answer": "I found some products that might interest you, but I'm having trouble describing them right now. Please try your question again.",
                     "sources": [doc.metadata for doc in docs],
                     "response_type": "llm_error",
                     "products": products_found,
                     "error": str(e)
                 }
-            
+        
         except Exception as e:
             logger.error(f"Error generating response: {e}")
             return {
-                "answer": "I encountered an error while processing your request.",
+                "answer": "I'm having trouble processing your request. Please try again.",
                 "sources": [],
                 "response_type": "error",
                 "error": str(e)
             }
     
+    def _clean_response(self, answer: str) -> str:
+        """Remove technical information and data freshness mentions from responses"""
+        import re
+        
+        # Remove data freshness mentions
+        patterns_to_remove = [
+            r"Our product data is fresh as of.*?\.",
+            r"The product data is fresh, last updated.*?\.",
+            r"DATA FRESHNESS:.*?\.",
+            r"Last updated.*?ago.*?\.",
+            r"Data.*?fresh.*?\.",
+            r"Database.*?updated.*?\.",
+            r"Vector.*?count.*?\.",
+            r"Pinecone.*?\.",
+            r"System.*?initialized.*?\."
+        ]
+        
+        cleaned_answer = answer
+        for pattern in patterns_to_remove:
+            cleaned_answer = re.sub(pattern, "", cleaned_answer, flags=re.IGNORECASE | re.DOTALL)
+        
+        # Clean up extra whitespace and line breaks
+        cleaned_answer = re.sub(r'\s+', ' ', cleaned_answer).strip()
+        
+        return cleaned_answer
+
     def _create_enhanced_prompt(self, question: str, context: str, intent: Dict[str, Any], 
-                           history: str, unavailable_info: str, 
-                           include_recommendations: bool, recommendations_text: str = "") -> str:
-        """Create enhanced prompt with fresh data context"""
+                       history: str, unavailable_info: str, 
+                       include_recommendations: bool, recommendations_text: str = "") -> str:
+        """Create enhanced prompt with natural conversational style and time-based greetings"""
+    
+        # Get time-based greeting
+        current_hour = datetime.now().hour
+        if 5 <= current_hour < 12:
+            greeting = "Good morning!"
+        elif 12 <= current_hour < 17:
+            greeting = "Good afternoon!"
+        elif 17 <= current_hour < 21:
+            greeting = "Good evening!"
+        else:
+            greeting = "Hello!"
         
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        data_freshness = self._get_data_freshness()
+        # Only use greeting for the first interaction or when appropriate
+        use_greeting = not self.conversation_history or len(self.conversation_history) == 0
         
-        base_prompt = f"""You are a helpful electronics store assistant with access to real-time product data.
+        base_prompt = f"""You are a helpful and friendly shopping assistant for an electronics store.
 
-DATA FRESHNESS: Last updated {data_freshness} (Current time: {timestamp})
+CUSTOMER QUESTION: {question}
 
-IMPORTANT: Only use information provided in the product data below. Do not invent any details.
-
-AVAILABLE PRODUCTS (FRESH DATA):
+AVAILABLE PRODUCTS:
 {context}
 
 {recommendations_text}
 
-CUSTOMER QUESTION: {question}
+RESPONSE GUIDELINES:
+1. {"Start with: " + greeting if use_greeting else "Be friendly and conversational"}
+2. Focus on helping the customer find what they need
+3. Present products in order of relevance to their request
+4. Use natural, conversational language - avoid technical jargon
+5. Highlight key benefits and features that matter to customers
+6. Mention prices and any discounts naturally in context
+7. Compare products when multiple options exist
+8. Keep responses concise but informative
+9. NEVER mention data freshness, database updates, or technical system information
+10. Use plain text only - no markdown, bullets, or special formatting
 
-GUIDELINES:
-- Only mention prices, features, and specifications explicitly listed in the product data
-- If a detail is not provided, say "I don't have that information" instead of guessing
-- Focus on actual product names, prices, categories, brands, and listed features only
-- Use plain text only - no markdown, bullets, or special formatting
-- Write in natural conversational paragraphs
-- When recommending products, explain based only on actual differences in the data
-- Mention that the data is fresh and up-to-date
+CONSTRAINTS:
+- Only mention information explicitly provided in the product data
+- Don't invent specifications or features not listed
+- If asked about unavailable information, politely say you don't have those details
+- Focus on practical benefits rather than technical specifications
+- Make product comparisons helpful and easy to understand
 
-Provide a helpful response using ONLY the fresh product information above:"""
-        
-        return base_prompt
+Provide a natural, helpful response that focuses on the customer's needs:"""
     
+        return base_prompt
+
     def _get_contextual_recommendations(self, docs: List[Document], question: str) -> List[Dict[str, Any]]:
-        """Get contextual recommendations using fresh data"""
+        """Get contextual product recommendations based on retrieved documents and question"""
         try:
-            # Extract primary product from docs
-            primary_product_id = None
-            main_category = None
+            recommendations = []
             
+            if not docs or not self.similarity_engine:
+                return recommendations
+            
+            # Extract product IDs from the retrieved documents
+            found_product_ids = set()
             for doc in docs:
-                if doc.metadata.get('doc_type') == 'product':
-                    primary_product_id = doc.metadata.get('product_id')
-                    main_category = doc.metadata.get('category')
+                if doc.metadata.get('product_id'):
+                    found_product_ids.add(doc.metadata['product_id'])
+            
+            # For each found product, get similar products
+            for product_id in list(found_product_ids)[:2]:  # Limit to first 2 products
+                try:
+                    similar_products = self.similarity_engine.find_similar_products(
+                        product_id, 
+                        top_k=2,  # Get 2 similar products
+                        same_category_only=False
+                    )
+                    
+                    for similar in similar_products:
+                        # Avoid recommending products already in results
+                        if similar['product_id'] not in found_product_ids:
+                            recommendation = {
+                                'product_id': similar['product_id'],
+                                'name': similar['product']['name'],
+                                'price': similar['product']['price'],
+                                'category': similar['product']['category'],
+                                'similarity_score': similar['similarity_score'],
+                                'reason': self.similarity_engine.get_recommendation_reason(
+                                    self.similarity_engine.product_data[product_id],
+                                    similar['product']
+                                )
+                            }
+                            recommendations.append(recommendation)
+                            
+                            # Limit total recommendations
+                            if len(recommendations) >= 3:
+                                break
+                
+                except Exception as e:
+                    logger.warning(f"Error getting similar products for {product_id}: {e}")
+                    continue
+                
+                if len(recommendations) >= 3:
                     break
             
-            if not primary_product_id:
-                return []
-            
-            # Get similar products
-            similar_products = self.similarity_engine.find_similar_products(
-                primary_product_id, top_k=3
-            )
-            
-            recommendations = []
-            for sim_data in similar_products:
-                product = sim_data['product']
-                
-                recommendations.append({
-                    "name": product['name'],
-                    "id": product['id'],
-                    "price": product['price'],
-                    "category": product['category'],
-                    "similarity_score": sim_data['similarity_score'],
-                    "recommendation_reason": self.similarity_engine.get_recommendation_reason(
-                        self.similarity_engine.product_data[primary_product_id], product
-                    )
-                })
-            
-            return recommendations
+            # Sort by similarity score and return top recommendations
+            recommendations.sort(key=lambda x: x['similarity_score'], reverse=True)
+            return recommendations[:3]
             
         except Exception as e:
-            logger.error(f"Error getting recommendations: {e}")
+            logger.error(f"Error getting contextual recommendations: {e}")
             return []
-    
+
     def _update_conversation_history(self, question: str, answer: str):
-        """Update conversation history"""
-        self.conversation_history.append({
-            'question': question,
-            'answer': answer,
-            'timestamp': datetime.now().isoformat()
-        })
-        
-        # Keep only last 10 exchanges
-        if len(self.conversation_history) > 10:
-            self.conversation_history = self.conversation_history[-10:]
-    
-    def health_check(self) -> Dict[str, Any]:
-        """Comprehensive health check with corrected 1:1 validation"""
+        """Update conversation history for context"""
         try:
-            # Check Pinecone
-            pinecone_stats = self.index.describe_index_stats() if self.index else {}
-            vector_count = pinecone_stats.get('total_vector_count', 0)
+            self.conversation_history.append({
+                'question': question,
+                'answer': answer,
+                'timestamp': datetime.now().isoformat()
+            })
             
-            # Check data consistency - FIXED: 1:1 mapping
-            expected_vectors = len(self.products_data)  # Exactly 1 vector per product
-            data_consistent = abs(vector_count - expected_vectors) <= 2  # Allow small variance
-            
-            # Check data freshness
-            data_age = self._get_data_freshness()
-            
-            # Test query
-            test_successful = False
-            try:
-                test_results = self.vectorstore.similarity_search("electronics", k=1)
-                test_successful = len(test_results) > 0
-            except Exception as e:
-                logger.warning(f"Test query failed: {e}")
-                test_successful = False
-            
-            return {
-                "status": "healthy" if (test_successful and data_consistent) else "degraded",
-                "pinecone_vectors": vector_count,
-                "local_products": len(self.products_data),
-                "expected_vectors": expected_vectors,  # Changed from expected_max_vectors
-                "data_consistent": data_consistent,
-                "vector_to_product_ratio": f"{vector_count}:{len(self.products_data)}",
-                "data_age": data_age,
-                "test_query_success": test_successful,
-                "last_refresh": self.pinecone_manager.last_refresh_time if self.pinecone_manager else None,
-                "categories_count": len(self.categories),
-                "brands_count": len(self.brands),
-                "is_initialized": self.is_initialized
+            # Keep only last 5 conversations to avoid memory bloat
+            if len(self.conversation_history) > 5:
+                self.conversation_history = self.conversation_history[-5:]
+                
+        except Exception as e:
+            logger.warning(f"Error updating conversation history: {e}")
+
+    def health_check(self) -> Dict[str, Any]:
+        """Comprehensive health check of the RAG system"""
+        try:
+            health_status = {
+                "status": "healthy",
+                "timestamp": datetime.now().isoformat(),
+                "components": {}
             }
+            
+            # Check data handler
+            try:
+                health_status["components"]["data_handler"] = {
+                    "status": "healthy" if self.data_handler else "unhealthy",
+                    "products_loaded": len(self.products_data)
+                }
+            except Exception as e:
+                health_status["components"]["data_handler"] = {
+                    "status": "unhealthy",
+                    "error": str(e)
+                }
+            
+            # Check Pinecone connection
+            try:
+                if self.index:
+                    stats = self.index.describe_index_stats()
+                    health_status["components"]["pinecone"] = {
+                        "status": "healthy",
+                        "vector_count": stats.get('total_vector_count', 0),
+                        "index_name": config.pinecone_index_name
+                    }
+                else:
+                    health_status["components"]["pinecone"] = {
+                        "status": "unhealthy",
+                        "error": "Index not initialized"
+                    }
+            except Exception as e:
+                health_status["components"]["pinecone"] = {
+                    "status": "unhealthy",
+                    "error": str(e)
+                }
+            
+            # Check LLM connection
+            try:
+                if self.llm:
+                    # Simple test query
+                    test_response = self.llm.invoke([HumanMessage(content="Test")])
+                    health_status["components"]["llm"] = {
+                        "status": "healthy",
+                        "model": config.llm_model
+                    }
+                else:
+                    health_status["components"]["llm"] = {
+                        "status": "unhealthy",
+                        "error": "LLM not initialized"
+                    }
+            except Exception as e:
+                health_status["components"]["llm"] = {
+                    "status": "unhealthy",
+                    "error": str(e)
+                }
+            
+            # Check embeddings
+            try:
+                if self.embeddings:
+                    health_status["components"]["embeddings"] = {
+                        "status": "healthy",
+                        "model": config.embedding_model
+                    }
+                else:
+                    health_status["components"]["embeddings"] = {
+                        "status": "unhealthy",
+                        "error": "Embeddings not initialized"
+                    }
+            except Exception as e:
+                health_status["components"]["embeddings"] = {
+                    "status": "unhealthy",
+                    "error": str(e)
+                }
+            
+            # Overall status based on components
+            unhealthy_components = [
+                name for name, component in health_status["components"].items() 
+                if component["status"] != "healthy"
+            ]
+            
+            if unhealthy_components:
+                health_status["status"] = "degraded" if len(unhealthy_components) < 3 else "unhealthy"
+                health_status["unhealthy_components"] = unhealthy_components
+            
+            # Add performance metrics if available
+            if hasattr(self, 'performance_monitor') and self.performance_monitor:
+                health_status["performance"] = self.performance_monitor.get_stats()
+            
+            return health_status
             
         except Exception as e:
             return {
                 "status": "error",
-                "error": str(e)
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
             }
+
+    def search_products(self, query: str, filters: Dict[str, Any] = None, limit: int = 20) -> List[Dict[str, Any]]:
+        """Search products with optional filters"""
+        try:
+            if not self.products_data:
+                return []
+            
+            # Apply text search if query provided
+            if query:
+                query_lower = query.lower()
+                filtered_products = []
+                
+                for product in self.products_data:
+                    # Search in name, description, category, brand, features
+                    search_fields = [
+                        product.get('name', '').lower(),
+                        product.get('description', '').lower(),
+                        product.get('category', '').lower(),
+                        product.get('brand', '').lower(),
+                        ' '.join(product.get('features', [])).lower(),
+                        ' '.join(product.get('tags', [])).lower()
+                    ]
+                    
+                    if any(query_lower in field for field in search_fields):
+                        filtered_products.append(product)
+            else:
+                filtered_products = self.products_data.copy()
+            
+            # Apply filters
+            if filters:
+                filtered_products = [p for p in filtered_products if self._apply_filters(p, filters)]
+            
+            # Sort by relevance (could be enhanced with embeddings)
+            # For now, sort by price or name
+            filtered_products.sort(key=lambda x: x.get('name', ''))
+            
+            return filtered_products[:limit]
+            
+        except Exception as e:
+            logger.error(f"Error searching products: {e}")
+            return []
+
+    def _apply_filters(self, product: Dict[str, Any], filters: Dict[str, Any]) -> bool:
+        """Apply filters to a product"""
+        try:
+            # Category filter
+            if filters.get('category') and product.get('category') != filters['category']:
+                return False
+            
+            # Brand filter
+            if filters.get('brand') and product.get('brand') != filters['brand']:
+                return False
+            
+            # Price range filters
+            if filters.get('min_price') and product.get('price', 0) < filters['min_price']:
+                return False
+            
+            if filters.get('max_price') and product.get('price', 0) > filters['max_price']:
+                return False
+            
+            # Stock filter
+            if filters.get('in_stock') is not None and product.get('inStock') != filters['in_stock']:
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Error applying filters: {e}")
+            return True
+
+    def get_similar_products(self, product_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Get similar products using the similarity engine"""
+        try:
+            if not self.similarity_engine:
+                return []
+            
+            similar = self.similarity_engine.find_similar_products(product_id, top_k=limit)
+            return [s['product'] for s in similar]
+            
+        except Exception as e:
+            logger.error(f"Error getting similar products: {e}")
+            return []
 
 def get_rag_system(data_source: Optional[Union[DataSource, str]] = None) -> Optional[EnhancedRAGSystem]:
     """Get or create the global RAG system instance - STRICT SINGLETON"""
