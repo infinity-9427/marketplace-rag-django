@@ -6,7 +6,7 @@ import re
 import time
 import numpy as np
 import hashlib
-from typing import List, Dict, Any, Optional, Union, Tuple
+from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
 from collections import defaultdict
 from sklearn.metrics.pairwise import cosine_similarity
@@ -145,21 +145,18 @@ class ProductSimilarityEngine:
         max_price = max(product1['price'], product2['price'])
         if max_price > 0:
             price_similarity = 1 - (price_diff / max_price)
-            score += price_similarity * 0.3
+            score += price_similarity * 0.5
         
         # Category match
         if product1['category'] == product2['category']:
             score += 0.4
         
-        # Rating similarity
-        rating1 = product1.get('rating', 0)
-        rating2 = product2.get('rating', 0)
-        if rating1 > 0 and rating2 > 0:
-            rating_similarity = 1 - abs(rating1 - rating2) / 5.0
-            score += rating_similarity * 0.3
+        # Brand similarity
+        if product1.get('brand') == product2.get('brand') and product1.get('brand'):
+            score += 0.1
         
         return min(score, 1.0)
-    
+
     def get_recommendation_reason(self, target_product: Dict[str, Any], 
                                 similar_product: Dict[str, Any]) -> str:
         """Generate reason for recommendation"""
@@ -182,16 +179,14 @@ class ProductSimilarityEngine:
         if similar_features - target_features:
             reasons.append("additional features")
         
-        # Rating comparison
-        target_rating = target_product.get('rating', 0)
-        similar_rating = similar_product.get('rating', 0)
-        
-        if similar_rating > target_rating + 0.2:
-            reasons.append(f"higher rating ({similar_rating:.1f}/5)")
-        
         # Category difference
         if target_product['category'] != similar_product['category']:
             reasons.append(f"alternative in {similar_product['category']}")
+        
+        # Brand comparison
+        if (target_product.get('brand') != similar_product.get('brand') and 
+            similar_product.get('brand')):
+            reasons.append(f"from {similar_product['brand']}")
         
         if reasons:
             return f"offers {', '.join(reasons)}"
@@ -716,7 +711,7 @@ class EnhancedRAGSystem:
                         "recommendation_reason": reason,
                         "similarity_score": sim_data['similarity_score']
                     })
-                    
+
                     seen_ids.add(product_id)
                     
                     # Limit to top 2 most relevant recommendations
@@ -1105,7 +1100,8 @@ Example good recommendation:
                 },
                 "metrics": {
                     "vector_count": vector_count,
-                    "product_count": product_count
+                    "product_count": product_count,
+                    "available_adapters": self.data_handler.get_available_adapters()
                 },
                 "performance": self.performance_monitor.get_stats()
             }

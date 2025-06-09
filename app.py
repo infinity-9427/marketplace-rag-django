@@ -81,31 +81,6 @@ def health_check():
             "request_id": g.request_id
         }), 500
 
-@app.route('/api/recommendations/<product_id>', methods=['GET'])
-def get_product_recommendations(product_id):
-    """Get recommendations for a specific product"""
-    try:
-        top_k = request.args.get('top_k', 3, type=int)
-        top_k = min(max(top_k, 1), 10)  # Limit between 1-10
-        
-        from assistant.enhanced_rag import get_similar_products
-        result = get_similar_products(product_id, top_k=top_k)
-        
-        result.update({
-            "request_id": g.request_id,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        logger.error(f"Error getting recommendations: {e}")
-        return jsonify({
-            "error": f"Failed to get recommendations: {str(e)}",
-            "status": "error",
-            "request_id": g.request_id
-        }), 500
-
 @app.route('/api/ask', methods=['POST'])
 def ask_question_post():
     """Enhanced POST endpoint for asking questions with recommendations"""
@@ -138,23 +113,8 @@ def ask_question_post():
         # Extract options
         include_recommendations = data.get('include_recommendations', True)
         
-        # Extract optional data source
-        data_source = None
-        if 'data_source' in data:
-            ds_config = data['data_source']
-            if isinstance(ds_config, str):
-                data_source = ds_config
-            elif isinstance(ds_config, dict):
-                data_source = DataSource(
-                    source_type=ds_config.get('type', 'file'),
-                    location=ds_config.get('location', ''),
-                    headers=ds_config.get('headers'),
-                    auth=ds_config.get('auth'),
-                    cache_duration=ds_config.get('cache_duration', 3600)
-                )
-        
         # Get answer with recommendations
-        result = get_answer(question, data_source, include_recommendations)
+        result = get_answer(question, None, include_recommendations)
         
         # Add metadata
         result.update({
@@ -185,18 +145,10 @@ def ask_question_get():
                 "request_id": g.request_id
             }), 400
         
-        # Optional data source from query params
-        data_source = None
-        ds_type = request.args.get('source_type')
-        ds_location = request.args.get('source_location')
+        # Extract options
+        include_recommendations = request.args.get('recommendations', 'true').lower() == 'true'
         
-        if ds_type and ds_location:
-            data_source = DataSource(
-                source_type=ds_type,
-                location=ds_location
-            )
-        
-        result = get_answer(question, data_source)
+        result = get_answer(question, None, include_recommendations)
         
         result.update({
             "request_id": g.request_id,
@@ -214,128 +166,126 @@ def ask_question_get():
             "request_id": g.request_id
         }), 500
 
-@app.route('/api/data-source', methods=['POST'])
-def update_data_source():
-    """Update data source endpoint"""
+@app.route('/api/products', methods=['GET'])
+def get_products():
+    """Get current products data with filters"""
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({
-                "error": "Invalid JSON in request body",
-                "status": "error",
-                "request_id": g.request_id
-            }), 400
-        
-        # Create data source
-        if isinstance(data, str):
-            # Check if it's a file path or table name
-            if data.endswith('.json'):
-                data_source = DataSource(source_type='file', location=data)
-            else:
-                data_source = DataSource(source_type='supabase', location=data)
-        else:
-            data_source = DataSource(
-                source_type=data.get('type', 'supabase'),
-                location=data.get('location', 'products'),
-                headers=data.get('headers'),
-                auth=data.get('auth'),
-                cache_duration=data.get('cache_duration', 300)
-            )
-        
-        # Update RAG system
         rag_system = get_rag_system()
-        if rag_system:
-            success = rag_system.update_data_source(data_source)
-            
-            if success:
-                return jsonify({
-                    "message": "Data source updated successfully",
-                    "status": "success",
-                    "data_source": {
-                        "type": data_source.source_type,
-                        "location": data_source.location
-                    },
-                    "request_id": g.request_id
-                })
-            else:
-                return jsonify({
-                    "error": "Failed to update data source",
-                    "status": "error",
-                    "request_id": g.request_id
-                }), 500
-        else:
+        if not rag_system:
             return jsonify({
                 "error": "RAG system not initialized",
                 "status": "error",
                 "request_id": g.request_id
             }), 500
+        
+        # Extract filters from query parameters
+        filters = {}
+        if request.args.get('category'):
+            filters['category'] = request.args.get('category')
+        if request.args.get('brand'):
+            filters['brand'] = request.args.get('brand')
+        if request.args.get('min_price'):
+            filters['min_price'] = float(request.args.get('min_price'))
+        if request.args.get('max_price'):
+            filters['max_price'] = float(request.args.get('max_price'))
+        if request.args.get('in_stock'):
+            filters['in_stock'] = request.args.get('in_stock').lower() == 'true'
+        
+        # Get search query
+        search_query = request.args.get('search', '')
+        limit = int(request.args.get('limit', 50))
+        
+        # Search products
+        if search_query:
+            products_data = rag_system.search_products(search_query, filters, limit)
+        else:
+            # Apply filters to all products
+            products_data = rag_system.products_data
+            if filters:
+                products_data = [p for p in products_data if rag_system._apply_filters(p, filters)]
+            products_data = products_data[:limit]
+        
+        return jsonify({
+            "products": products_data,
+            "count": len(products_data),
+            "total_available": len(rag_system.products_data),
+            "categories": rag_system.categories,
+            "brands": rag_system.brands,
+            "filters_applied": filters,
+            "data_source": {
+                "type": "supabase",
+                "table": "products"
+            },
+            "status": "success",
+            "request_id": g.request_id,
+            "timestamp": datetime.now().isoformat()
+        })
             
     except Exception as e:
-        logger.error(f"Error updating data source: {e}")
+        logger.error(f"Error getting products: {e}")
         return jsonify({
-            "error": f"Failed to update data source: {str(e)}",
+            "error": f"Failed to load products: {str(e)}",
             "status": "error",
             "request_id": g.request_id
         }), 500
 
-@app.route('/api/data-sources', methods=['GET'])
-def get_available_data_sources():
-    """Get available data sources"""
+@app.route('/api/products/<product_id>/similar', methods=['GET'])
+def get_similar_products(product_id):
+    """Get similar products based on embeddings"""
     try:
+        rag_system = get_rag_system()
+        if not rag_system:
+            return jsonify({
+                "error": "RAG system not initialized",
+                "status": "error",
+                "request_id": g.request_id
+            }), 500
+        
+        limit = int(request.args.get('limit', 5))
+        similar_products = rag_system.get_similar_products(product_id, limit)
+        
         return jsonify({
-            "data_sources": [
-                {
-                    "type": "supabase",
-                    "name": "Supabase Products Table",
-                    "location": "products",
-                    "description": "Real-time product data from Supabase database"
-                },
-                {
-                    "type": "file",
-                    "name": "Local JSON File",
-                    "location": "assistant/products.json",
-                    "description": "Local JSON file with product data"
-                }
-            ],
-            "current_source": {
-                "type": "supabase",
-                "location": "products"
-            },
+            "similar_products": similar_products,
+            "count": len(similar_products),
+            "product_id": product_id,
             "status": "success",
-            "request_id": g.request_id
+            "request_id": g.request_id,
+            "timestamp": datetime.now().isoformat()
         })
         
     except Exception as e:
-        logger.error(f"Error getting data sources: {e}")
+        logger.error(f"Error getting similar products: {e}")
         return jsonify({
-            "error": str(e),
+            "error": f"Failed to get similar products: {str(e)}",
             "status": "error",
             "request_id": g.request_id
         }), 500
 
-@app.route('/api/performance', methods=['GET'])
-def get_performance_stats():
-    """Get performance statistics"""
+@app.route('/api/categories', methods=['GET'])
+def get_categories():
+    """Get all categories and brands dynamically"""
     try:
         rag_system = get_rag_system()
-        if rag_system:
-            stats = rag_system.get_performance_stats()
-            stats.update({
-                "request_id": g.request_id,
-                "timestamp": datetime.now().isoformat()
-            })
-            return jsonify(stats)
-        else:
+        if not rag_system:
             return jsonify({
                 "error": "RAG system not initialized",
                 "status": "error",
                 "request_id": g.request_id
             }), 500
-            
-    except Exception as e:
-        logger.error(f"Error getting performance stats: {e}")
+        
         return jsonify({
-            "error": str(e),
+            "categories": rag_system.categories,
+            "brands": rag_system.brands,
+            "total_products": len(rag_system.products_data),
+            "status": "success",
+            "request_id": g.request_id,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting categories: {e}")
+        return jsonify({
+            "error": f"Failed to get categories: {str(e)}",
             "status": "error",
             "request_id": g.request_id
         }), 500
@@ -346,16 +296,18 @@ def run_tests():
     try:
         test_results = []
         test_questions = [
-            "What headphones do you have?",
-            "Tell me about wireless products",
+            "What coffee makers do you have?",
+            "Show me wireless headphones",
             "What's the most expensive item?",
             "Compare gaming products",
-            "Show me products under $100"
+            "Show me products under $100",
+            "What kitchen appliances are available?",
+            "Find me premium products"
         ]
         
         for question in test_questions:
             start_time = datetime.now()
-            result = get_answer(question)
+            result = get_answer(question, include_recommendations=True)
             duration = (datetime.now() - start_time).total_seconds()
             
             test_results.append({
@@ -363,7 +315,8 @@ def run_tests():
                 "success": "error" not in result,
                 "response_time": f"{duration:.3f}s",
                 "answer_preview": result.get('answer', result.get('error', ''))[:100] + "...",
-                "sources_count": len(result.get('sources', [])),
+                "products_count": len(result.get('products', [])),
+                "recommendations_count": len(result.get('recommendations', [])),
                 "response_type": result.get('response_type', 'unknown')
             })
         
@@ -388,45 +341,10 @@ def run_tests():
             "request_id": g.request_id
         }), 500
 
-@app.route('/api/products', methods=['GET'])
-def get_products():
-    """Get current products data"""
-    try:
-        rag_system = get_rag_system()
-        if rag_system:
-            # Load current products
-            products_data = rag_system.data_handler.load_data(rag_system.data_source)
-            
-            return jsonify({
-                "products": products_data,
-                "count": len(products_data),
-                "data_source": {
-                    "type": rag_system.data_source.source_type,
-                    "location": rag_system.data_source.location
-                },
-                "status": "success",
-                "request_id": g.request_id,
-                "timestamp": datetime.now().isoformat()
-            })
-        else:
-            return jsonify({
-                "error": "RAG system not initialized",
-                "status": "error",
-                "request_id": g.request_id
-            }), 500
-            
-    except Exception as e:
-        logger.error(f"Error getting products: {e}")
-        return jsonify({
-            "error": f"Failed to load products: {str(e)}",
-            "status": "error",
-            "request_id": g.request_id
-        }), 500
-
 if __name__ == '__main__':
     if not config.validate():
         logger.error("Configuration validation failed. Check your .env file.")
         exit(1)
     
-    logger.info("🚀 Starting Enhanced RAG API Server...")
+    logger.info("🚀 Starting Enhanced RAG API Server with Supabase...")
     app.run(host='0.0.0.0', port=5000, debug=True)
