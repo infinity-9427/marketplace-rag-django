@@ -1088,10 +1088,32 @@ class EnhancedRAGSystem:
             }
     
     def _clean_response(self, answer: str) -> str:
-        """Remove technical information and data freshness mentions from responses"""
+        """Remove technical information and Markdown formatting from responses"""
         import re
         
-        # Remove data freshness mentions
+        # Remove Markdown formatting
+        cleaned_answer = answer
+        
+        # Remove bold formatting (**text** or __text__)
+        cleaned_answer = re.sub(r'\*\*(.*?)\*\*', r'\1', cleaned_answer)
+        cleaned_answer = re.sub(r'__(.*?)__', r'\1', cleaned_answer)
+        
+        # Remove italic formatting (*text* or _text_)
+        cleaned_answer = re.sub(r'\*(.*?)\*', r'\1', cleaned_answer)
+        cleaned_answer = re.sub(r'_(.*?)_', r'\1', cleaned_answer)
+        
+        # Remove bullet points and list formatting
+        cleaned_answer = re.sub(r'^\s*[-*+]\s+', '', cleaned_answer, flags=re.MULTILINE)
+        cleaned_answer = re.sub(r'^\s*\d+\.\s+', '', cleaned_answer, flags=re.MULTILINE)
+        
+        # Remove headers (# ## ###)
+        cleaned_answer = re.sub(r'^#+\s+', '', cleaned_answer, flags=re.MULTILINE)
+        
+        # Remove code blocks and inline code
+        cleaned_answer = re.sub(r'```.*?```', '', cleaned_answer, flags=re.DOTALL)
+        cleaned_answer = re.sub(r'`(.*?)`', r'\1', cleaned_answer)
+        
+        # Remove data freshness mentions (existing functionality)
         patterns_to_remove = [
             r"Our product data is fresh as of.*?\.",
             r"The product data is fresh, last updated.*?\.",
@@ -1104,20 +1126,19 @@ class EnhancedRAGSystem:
             r"System.*?initialized.*?\."
         ]
         
-        cleaned_answer = answer
         for pattern in patterns_to_remove:
             cleaned_answer = re.sub(pattern, "", cleaned_answer, flags=re.IGNORECASE | re.DOTALL)
-        
+    
         # Clean up extra whitespace and line breaks
         cleaned_answer = re.sub(r'\s+', ' ', cleaned_answer).strip()
         
         return cleaned_answer
 
     def _create_enhanced_prompt(self, question: str, context: str, intent: Dict[str, Any], 
-                       history: str, unavailable_info: str, 
-                       include_recommendations: bool, recommendations_text: str = "") -> str:
+                   history: str, unavailable_info: str, 
+                   include_recommendations: bool, recommendations_text: str = "") -> str:
         """Create enhanced prompt with natural conversational style and time-based greetings"""
-    
+
         # Get time-based greeting
         current_hour = datetime.now().hour
         if 5 <= current_hour < 12:
@@ -1128,10 +1149,10 @@ class EnhancedRAGSystem:
             greeting = "Good evening!"
         else:
             greeting = "Hello!"
-        
+    
         # Only use greeting for the first interaction or when appropriate
         use_greeting = not self.conversation_history or len(self.conversation_history) == 0
-        
+    
         base_prompt = f"""You are a helpful and friendly shopping assistant for an electronics store.
 
 CUSTOMER QUESTION: {question}
@@ -1151,7 +1172,16 @@ RESPONSE GUIDELINES:
 7. Compare products when multiple options exist
 8. Keep responses concise but informative
 9. NEVER mention data freshness, database updates, or technical system information
-10. Use plain text only - no markdown, bullets, or special formatting
+10. Use plain text only - NO MARKDOWN, NO ASTERISKS, NO BOLD/ITALIC FORMATTING
+11. Do not use **, __, *, _, #, bullets, or any special formatting characters
+12. Write in natural flowing sentences without special emphasis markers
+
+FORMATTING RULES:
+- NO markdown syntax (**, __, *, _, etc.)
+- NO bullet points or numbered lists
+- NO special characters for emphasis
+- Use natural language emphasis through word choice instead
+- Write as if speaking directly to the customer
 
 CONSTRAINTS:
 - Only mention information explicitly provided in the product data
@@ -1160,7 +1190,7 @@ CONSTRAINTS:
 - Focus on practical benefits rather than technical specifications
 - Make product comparisons helpful and easy to understand
 
-Provide a natural, helpful response that focuses on the customer's needs:"""
+Provide a natural, helpful response in plain text format:"""
     
         return base_prompt
 
