@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DataSource:
     """Data source configuration"""
-    source_type: str  # 'file', 'api', 'database'
+    source_type: str  # 'file', 'api', 'database', 'supabase'
     location: str  # file path, API URL, or table name
     headers: Optional[Dict[str, str]] = None
     auth: Optional[Dict[str, str]] = None
@@ -122,15 +122,16 @@ class DataHandler:
             if source.endswith('.json'):
                 source = DataSource(source_type='file', location=source)
             else:
-                # Default to database with table name
-                source = DataSource(source_type='database', location=source)
+                # Default to supabase with table name
+                source = DataSource(source_type='supabase', location=source)
         
         cache_key = self._get_cache_key(f"{source.source_type}_{source.location}")
         
-        # Check cache first
-        if self._is_cache_valid(cache_key, source.cache_duration):
+        # Check cache first (only if cache_duration > 0)
+        if source.cache_duration > 0 and self._is_cache_valid(cache_key, source.cache_duration):
             cached_data = self._load_from_cache(cache_key)
             if cached_data:
+                logger.info(f"Using cached data for {source.source_type}:{source.location}")
                 return cached_data
         
         try:
@@ -139,7 +140,8 @@ class DataHandler:
             if data:
                 # Normalize and cache the data
                 normalized_data = self._normalize_data(data, source.source_type)
-                self._save_to_cache(cache_key, normalized_data)
+                if source.cache_duration > 0:  # Only cache if cache_duration > 0
+                    self._save_to_cache(cache_key, normalized_data)
                 return normalized_data
         except Exception as e:
             logger.error(f"Error loading from {source.source_type}: {e}")
@@ -160,7 +162,7 @@ class DataHandler:
             return self._load_from_file(source.location)
         elif source.source_type == 'api':
             return self._load_from_api(source)
-        elif source.source_type == 'database':
+        elif source.source_type in ['database', 'supabase']:  # Handle both 'database' and 'supabase'
             return self._load_from_database(source.location)
         else:
             raise Exception(f"Unsupported source type: {source.source_type}")
@@ -196,15 +198,25 @@ class DataHandler:
     def _load_from_database(self, table_name: str) -> List[Dict[str, Any]]:
         """Load data from database using the database manager"""
         try:
-            if not self.db_manager or not self.db_manager.is_connected():
-                raise Exception("Database not connected")
+            if not self.db_manager:
+                logger.error("Database manager not initialized")
+                return []
+            
+            if not self.db_manager.is_connected():
+                logger.info("Database not connected, attempting to reconnect...")
+                if not self.db_manager.connect():
+                    logger.error("Failed to reconnect to database")
+                    return []
             
             data = self.db_manager.fetch_products(table_name)
-            logger.info(f"Loaded {len(data)} items from database table: {table_name}")
+            logger.info(f"Loaded {len(data)} items from Supabase table: {table_name}")
             return data
             
         except Exception as e:
-            logger.error(f"Error loading from database table {table_name}: {e}")
+            logger.error(f"Error loading from Supabase table {table_name}: {e}")
+            logger.error(f"Database manager status: {self.db_manager is not None}")
+            if self.db_manager:
+                logger.error(f"Database connected: {self.db_manager.is_connected()}")
             return []
     
     def _normalize_data(self, data: List[Dict[str, Any]], source_type: str) -> List[Dict[str, Any]]:
@@ -224,12 +236,38 @@ class DataHandler:
         return normalized
     
     def _normalize_item(self, item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Normalize a single item to standard format"""
+        """Normalize a single item to standard format with better error handling"""
         
         # Extract and validate required fields
         if not item.get('name'):
             return None
         
+        # Handle price with None check and validation
+        try:
+            price = item.get('price')
+            if price is None:
+                logger.warning(f"Product {item.get('id', 'unknown')} has no price, skipping")
+                return None
+            price = float(price)
+            if price < 0:
+                logger.warning(f"Product {item.get('id', 'unknown')} has negative price: {price}, skipping")
+                return None
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Product {item.get('id', 'unknown')} has invalid price '{price}': {e}, skipping")
+            return None
+        
+        # Handle original price with fallback to current price
+        try:
+            original_price = item.get('originalPrice')
+            if original_price is None:
+                original_price = price
+            else:
+                original_price = float(original_price)
+                if original_price < 0:
+                    original_price = price
+        except (ValueError, TypeError):
+            original_price = price
+
         # Parse features from string format "feature1|feature2|feature3" or list
         features = []
         if item.get('features'):
@@ -254,12 +292,12 @@ class DataHandler:
             except:
                 specifications = {}
         
-        # Build normalized item with ONLY actual data fields
+        # Build normalized item with ONLY actual data fields and proper validation
         normalized = {
             'id': str(item.get('id', '')),
             'name': str(item.get('name', '')),
-            'price': float(item.get('price', 0)),
-            'originalPrice': float(item.get('originalPrice', item.get('price', 0))),
+            'price': price,  # Already validated above
+            'originalPrice': original_price,  # Already validated above
             'description': str(item.get('description', '')),
             'category': str(item.get('category', 'General')),
             'subcategory': str(item.get('subcategory', '')),
@@ -271,11 +309,8 @@ class DataHandler:
             'inStock': bool(item.get('inStock', True)),
             
             # Computed fields for better RAG performance
-            'price_range': self._get_price_range(float(item.get('price', 0))),
-            'discount_percentage': self._calculate_discount(
-                item.get('originalPrice', item.get('price', 0)), 
-                item.get('price', 0)
-            ),
+            'price_range': self._get_price_range(price),
+            'discount_percentage': self._calculate_discount(original_price, price),
             'search_text': self._build_search_text(item, features, tags),
         }
         
@@ -293,10 +328,13 @@ class DataHandler:
             return "luxury"
     
     def _calculate_discount(self, original_price: float, current_price: float) -> float:
-        """Calculate discount percentage"""
-        if not original_price or original_price <= current_price:
+        """Calculate discount percentage with proper validation"""
+        try:
+            if not original_price or original_price <= current_price:
+                return 0.0
+            return round(((original_price - current_price) / original_price) * 100, 1)
+        except (ValueError, TypeError, ZeroDivisionError):
             return 0.0
-        return round(((original_price - current_price) / original_price) * 100, 1)
     
     def _build_search_text(self, item: Dict[str, Any], features: List[str], tags: List[str]) -> str:
         """Build comprehensive search text for better embeddings"""

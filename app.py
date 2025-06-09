@@ -1,5 +1,6 @@
 import os
 import logging
+import time  # Add this missing import
 from datetime import datetime
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
@@ -84,6 +85,9 @@ def health_check():
 @app.route('/api/ask', methods=['POST'])
 def ask_question_post():
     """Enhanced POST endpoint for asking questions with recommendations"""
+    request_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{int(time.time() * 1000000) % 1000000}"
+    start_time = time.time()
+    
     try:
         # Validate request
         if not request.is_json:
@@ -340,6 +344,18 @@ def run_tests():
             "status": "error",
             "request_id": g.request_id
         }), 500
+
+# Initialize RAG system immediately when server starts - SINGLETON PATTERN
+logger.info("🚀 Initializing RAG system singleton on server startup...")
+try:
+    from assistant.enhanced_rag import get_rag_system
+    rag_system = get_rag_system()
+    if rag_system and rag_system.is_initialized:
+        logger.info("✅ RAG system singleton initialized successfully with indexed data")
+    else:
+        logger.error("❌ Failed to initialize RAG system singleton")
+except Exception as e:
+    logger.error(f"❌ Error initializing RAG system singleton on startup: {e}")
 
 if __name__ == '__main__':
     if not config.validate():
