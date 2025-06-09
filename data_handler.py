@@ -8,169 +8,41 @@ import os
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 
+# Import the new database manager
+from dbConnection import get_database_manager, DatabaseManager, DatabaseConfig
+
 logger = logging.getLogger(__name__)
 
 @dataclass
 class DataSource:
     """Data source configuration"""
-    source_type: str  # 'file', 'api', 'database', 'supabase', 'mongodb'
-    location: str  # file path, API URL, database connection string, or table name
+    source_type: str  # 'file', 'api', 'database'
+    location: str  # file path, API URL, or table name
     headers: Optional[Dict[str, str]] = None
     auth: Optional[Dict[str, str]] = None
     cache_duration: int = 3600  # seconds
     config: Optional[Dict[str, str]] = None  # For database specific config
 
-class DatabaseAdapter(ABC):
-    """Abstract base class for database adapters"""
-    
-    @abstractmethod
-    def connect(self, config: Dict[str, str]) -> bool:
-        """Connect to the database"""
-        pass
-    
-    @abstractmethod
-    def fetch_products(self, table_name: str) -> List[Dict[str, Any]]:
-        """Fetch products from the database"""
-        pass
-    
-    @abstractmethod
-    def is_connected(self) -> bool:
-        """Check if connection is active"""
-        pass
-
-class SupabaseAdapter(DatabaseAdapter):
-    """Supabase database adapter"""
-    
-    def __init__(self):
-        self.client = None
-    
-    def connect(self, config: Dict[str, str]) -> bool:
-        """Connect to Supabase"""
-        try:
-            from supabase import create_client
-            url = config.get('url')
-            key = config.get('key')
-            
-            if url and key:
-                self.client = create_client(url, key)
-                logger.info("Supabase adapter connected successfully")
-                return True
-            else:
-                logger.error("Supabase URL or key missing in config")
-                return False
-        except Exception as e:
-            logger.error(f"Error connecting to Supabase: {e}")
-            return False
-    
-    def fetch_products(self, table_name: str) -> List[Dict[str, Any]]:
-        """Fetch products from Supabase table"""
-        if not self.client:
-            raise Exception("Supabase client not connected")
-        
-        response = self.client.table(table_name).select("*").execute()
-        
-        if response.data:
-            logger.info(f"Loaded {len(response.data)} items from Supabase table: {table_name}")
-            return response.data
-        else:
-            logger.warning(f"No data found in Supabase table: {table_name}")
-            return []
-    
-    def is_connected(self) -> bool:
-        """Check if Supabase client is connected"""
-        return self.client is not None
-
-class MongoDBAdapter(DatabaseAdapter):
-    """MongoDB database adapter"""
-    
-    def __init__(self):
-        self.client = None
-        self.db = None
-    
-    def connect(self, config: Dict[str, str]) -> bool:
-        """Connect to MongoDB"""
-        try:
-            from pymongo import MongoClient
-            connection_string = config.get('connection_string')
-            database_name = config.get('database', 'portfolio')
-            
-            if connection_string:
-                self.client = MongoClient(connection_string)
-                self.db = self.client[database_name]
-                # Test connection
-                self.client.admin.command('ping')
-                logger.info("MongoDB adapter connected successfully")
-                return True
-            else:
-                logger.error("MongoDB connection string missing")
-                return False
-        except Exception as e:
-            logger.error(f"Error connecting to MongoDB: {e}")
-            return False
-    
-    def fetch_products(self, collection_name: str) -> List[Dict[str, Any]]:
-        """Fetch products from MongoDB collection"""
-        if not self.db:
-            raise Exception("MongoDB client not connected")
-        
-        collection = self.db[collection_name]
-        products = list(collection.find({}))
-        
-        # Convert ObjectId to string for JSON serialization
-        for product in products:
-            if '_id' in product:
-                product['id'] = str(product['_id'])
-                del product['_id']
-        
-        logger.info(f"Loaded {len(products)} items from MongoDB collection: {collection_name}")
-        return products
-    
-    def is_connected(self) -> bool:
-        """Check if MongoDB client is connected"""
-        try:
-            if self.client:
-                self.client.admin.command('ping')
-                return True
-        except:
-            pass
-        return False
-
 class DataHandler:
-    """Enhanced data handler with database abstraction"""
+    """Enhanced data handler with flexible database abstraction"""
     
     def __init__(self, cache_dir: str = "cache"):
         self.cache_dir = cache_dir
         os.makedirs(cache_dir, exist_ok=True)
-        self.adapters = {}
-        self._initialize_adapters()
+        self.db_manager: Optional[DatabaseManager] = None
+        self._initialize_database()
         
-    def _initialize_adapters(self):
-        """Initialize database adapters"""
+    def _initialize_database(self):
+        """Initialize database connection"""
         try:
-            from config import config
-            
-            # Initialize Supabase adapter
-            if hasattr(config, 'supabase_url') and hasattr(config, 'supabase_key'):
-                supabase_adapter = SupabaseAdapter()
-                supabase_config = {
-                    'url': config.supabase_url,
-                    'key': config.supabase_key
-                }
-                if supabase_adapter.connect(supabase_config):
-                    self.adapters['supabase'] = supabase_adapter
-            
-            # Initialize MongoDB adapter if config exists
-            if hasattr(config, 'mongodb_connection_string'):
-                mongodb_adapter = MongoDBAdapter()
-                mongodb_config = {
-                    'connection_string': config.mongodb_connection_string,
-                    'database': getattr(config, 'mongodb_database', 'portfolio')
-                }
-                if mongodb_adapter.connect(mongodb_config):
-                    self.adapters['mongodb'] = mongodb_adapter
-                    
+            self.db_manager = get_database_manager()
+            if self.db_manager.is_connected():
+                logger.info("Database connection established successfully")
+            else:
+                logger.warning("Database connection failed, will use fallback methods")
         except Exception as e:
-            logger.error(f"Error initializing adapters: {e}")
+            logger.error(f"Error initializing database: {e}")
+            self.db_manager = None
     
     def _get_cache_path(self, source_key: str) -> str:
         """Generate cache file path"""
@@ -217,8 +89,8 @@ class DataHandler:
             if source.endswith('.json'):
                 source = DataSource(source_type='file', location=source)
             else:
-                # Default to Supabase with table name
-                source = DataSource(source_type='supabase', location=source)
+                # Default to database with table name
+                source = DataSource(source_type='database', location=source)
         
         try:
             # Try to load from primary data source
@@ -249,12 +121,8 @@ class DataHandler:
             return self._load_from_file(source.location)
         elif source.source_type == 'api':
             return self._load_from_api(source)
-        elif source.source_type in self.adapters:
-            adapter = self.adapters[source.source_type]
-            if adapter.is_connected():
-                return adapter.fetch_products(source.location)
-            else:
-                raise Exception(f"{source.source_type} adapter not connected")
+        elif source.source_type == 'database':
+            return self._load_from_database(source.location)
         else:
             raise Exception(f"Unsupported source type: {source.source_type}")
     
@@ -284,6 +152,20 @@ class DataHandler:
             return data
         except Exception as e:
             logger.error(f"Error loading from API {source.location}: {e}")
+            return []
+    
+    def _load_from_database(self, table_name: str) -> List[Dict[str, Any]]:
+        """Load data from database using the database manager"""
+        try:
+            if not self.db_manager or not self.db_manager.is_connected():
+                raise Exception("Database not connected")
+            
+            data = self.db_manager.fetch_products(table_name)
+            logger.info(f"Loaded {len(data)} items from database table: {table_name}")
+            return data
+            
+        except Exception as e:
+            logger.error(f"Error loading from database table {table_name}: {e}")
             return []
     
     def _normalize_data(self, data: List[Dict[str, Any]], source_type: str) -> List[Dict[str, Any]]:
@@ -466,26 +348,26 @@ class DataHandler:
             "median": median
         }
     
-    def add_adapter(self, adapter_type: str, adapter: DatabaseAdapter, config: Dict[str, str]) -> bool:
-        """Add a new database adapter"""
+    def switch_database(self, new_api_url: str, new_api_key: str) -> bool:
+        """Switch to a different Supabase database"""
         try:
-            if adapter.connect(config):
-                self.adapters[adapter_type] = adapter
-                logger.info(f"Added {adapter_type} adapter successfully")
-                return True
-            else:
-                logger.error(f"Failed to connect {adapter_type} adapter")
-                return False
+            if self.db_manager:
+                new_config = DatabaseConfig(api_url=new_api_url, api_key=new_api_key)
+                return self.db_manager.switch_database(new_config)
+            return False
         except Exception as e:
-            logger.error(f"Error adding {adapter_type} adapter: {e}")
+            logger.error(f"Error switching database: {e}")
             return False
     
-    def get_available_adapters(self) -> List[str]:
-        """Get list of available database adapters"""
-        return list(self.adapters.keys())
+    def get_database_health(self) -> Dict[str, Any]:
+        """Get database health status"""
+        if self.db_manager:
+            return self.db_manager.health_check()
+        return {
+            "status": "unhealthy",
+            "error": "No database manager initialized"
+        }
     
-    def test_connection(self, adapter_type: str) -> bool:
-        """Test connection for a specific adapter"""
-        if adapter_type in self.adapters:
-            return self.adapters[adapter_type].is_connected()
-        return False
+    def get_available_databases(self) -> List[str]:
+        """Get list of supported database types"""
+        return ['supabase']

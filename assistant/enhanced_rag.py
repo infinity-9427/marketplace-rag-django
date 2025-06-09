@@ -468,8 +468,7 @@ class EnhancedRAGSystem:
                 'category': product['category'],
                 'price': product['price'],
                 'in_stock': product.get('in_stock', True),
-                'doc_type': 'product',
-                'rating': product.get('rating', 0)
+                'doc_type': 'product'
             }
             
             documents.append(Document(
@@ -502,9 +501,6 @@ class EnhancedRAGSystem:
         if product.get('brand'):
             content_parts.append(f"Brand: {product['brand']}")
         
-        if product.get('rating'):
-            content_parts.append(f"Rating: {product['rating']}/5")
-        
         if product.get('features'):
             content_parts.append(f"Features: {', '.join(product['features'])}")
         
@@ -512,7 +508,7 @@ class EnhancedRAGSystem:
             content_parts.append("Status: Out of Stock")
         
         return "\n".join(content_parts)
-    
+
     def find_similar_products(self, product_name_or_id: str, top_k: int = 3) -> Dict[str, Any]:
         """Get similar products for a given product"""
         try:
@@ -545,7 +541,6 @@ class EnhancedRAGSystem:
                     "id": product['id'],
                     "price": product['price'],
                     "category": product['category'],
-                    "rating": product.get('rating', 0),
                     "similarity_score": sim_data['similarity_score'],
                     "recommendation_reason": reason,
                     "description": product['description'][:150] + "..."
