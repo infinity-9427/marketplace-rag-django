@@ -394,24 +394,49 @@ class EnhancedRAGSystem:
             return False
     
     def _populate_vector_store(self, products_data: List[Dict[str, Any]], force_rebuild: bool, vector_count: int):
-        """Populate vector store with product data"""
+        """Populate vector store with product data ensuring proper indexing"""
         try:
             # Generate keywords
             self._generate_dynamic_keywords(products_data)
             
-            # Create documents
+            # Create documents with proper metadata
             documents = self._create_documents(products_data)
             
             # Clear existing vectors if rebuilding
             if force_rebuild and vector_count > 0:
                 logger.info("Clearing existing vectors...")
                 self.index.delete(delete_all=True)
+                # Wait a moment for deletion to propagate
+                import time
+                time.sleep(2)
             
-            # Add documents to Pinecone
+            # Add documents to Pinecone in batches for better performance
             if documents:
                 logger.info(f"Adding {len(documents)} documents to vector store...")
-                self.vectorstore.add_documents(documents)
-                logger.info("Documents added successfully")
+                
+                # Process in batches to avoid timeout issues
+                batch_size = 50
+                for i in range(0, len(documents), batch_size):
+                    batch = documents[i:i + batch_size]
+                    try:
+                        # Add batch with proper IDs to ensure indexing
+                        document_ids = [f"doc_{doc.metadata['product_id']}_{i+j}" 
+                                      for j, doc in enumerate(batch)]
+                        self.vectorstore.add_documents(batch, ids=document_ids)
+                        logger.debug(f"Added batch {i//batch_size + 1} ({len(batch)} documents)")
+                    except Exception as batch_error:
+                        logger.error(f"Error adding batch {i//batch_size + 1}: {batch_error}")
+                        # Continue with next batch
+                        continue
+                
+                # Verify indexing worked
+                final_stats = self.index.describe_index_stats()
+                final_count = final_stats.get('total_vector_count', 0)
+                logger.info(f"Vector store population completed. Final count: {final_count}")
+                
+                if final_count == 0:
+                    logger.warning("No vectors were successfully indexed!")
+                    return False
         
         except Exception as e:
             logger.error(f"Error populating vector store: {e}")
@@ -442,7 +467,7 @@ class EnhancedRAGSystem:
             self.dynamic_keywords[product_id] = list(set(keywords))
     
     def _create_documents(self, products_data: List[Dict[str, Any]]) -> List[Document]:
-        """Create documents for vector store"""
+        """Create documents for vector store with enhanced metadata"""
         documents = []
         
         for product in products_data:
@@ -454,7 +479,9 @@ class EnhancedRAGSystem:
                 'category': product['category'],
                 'price': product['price'],
                 'in_stock': product.get('inStock', True),
-                'doc_type': 'product'
+                'doc_type': 'product',
+                'brand': product.get('brand', ''),
+                'price_range': product.get('price_range', 'mid-range')
             }
             
             documents.append(Document(
@@ -462,46 +489,52 @@ class EnhancedRAGSystem:
                 metadata=metadata
             ))
             
-            # Create additional documents for features and specifications
-            if product.get('features'):
-                feature_content = f"Product: {product['name']}\nFeatures: " + " | ".join(product['features'])
-                feature_metadata = metadata.copy()
-                feature_metadata['doc_type'] = 'features'
-                
-                documents.append(Document(
-                    page_content=feature_content,
-                    metadata=feature_metadata
-                ))
+            # Create feature-specific documents for better retrieval
+            if product.get('features') and len(product['features']) > 0:
+                for idx, feature in enumerate(product['features'][:3]):  # Limit to top 3 features
+                    feature_content = f"Product: {product['name']}\nCategory: {product['category']}\nKey Feature: {feature}\nPrice: ${product['price']:.2f}\nDescription: {product['description']}"
+                    feature_metadata = metadata.copy()
+                    feature_metadata.update({
+                        'doc_type': 'feature',
+                        'feature_name': feature,
+                        'feature_index': idx
+                    })
+                    
+                    documents.append(Document(
+                        page_content=feature_content,
+                        metadata=feature_metadata
+                    ))
         
+        logger.info(f"Created {len(documents)} documents for indexing")
         return documents
     
-    def _create_product_content(self, product: Dict[str, Any]) -> str:
-        """Create rich content for a product - STRICT DATA ONLY"""
-        content_parts = [
-            f"Product: {product['name']}",
-            f"Price: ${product['price']:.2f}",
-            f"Category: {product['category']}",
-            f"Description: {product['description']}"
-        ]
-        
-        if product.get('brand'):
-            content_parts.append(f"Brand: {product['brand']}")
-        
-        if product.get('features'):
-            content_parts.append(f"Features: {', '.join(product['features'])}")
-        
-        if not product.get('inStock', True):
-            content_parts.append("Status: Out of Stock")
-        
-        # Add specifications if available
-        if product.get('specifications'):
-            specs = []
-            for key, value in product['specifications'].items():
-                specs.append(f"{key}: {value}")
-            if specs:
-                content_parts.append(f"Specifications: {', '.join(specs)}")
-        
-        return "\n".join(content_parts)
+    def verify_index_health(self) -> Dict[str, Any]:
+        """Verify that the Pinecone index is properly populated and accessible"""
+        try:
+            if not self.index:
+                return {"status": "error", "message": "Index not initialized"}
+            
+            # Get index stats
+            stats = self.index.describe_index_stats()
+            vector_count = stats.get('total_vector_count', 0)
+            
+            # Test a simple query
+            test_query = "electronics"
+            test_results = self.vectorstore.similarity_search(test_query, k=1)
+            
+            return {
+                "status": "healthy" if vector_count > 0 else "empty",
+                "vector_count": vector_count,
+                "index_stats": stats,
+                "test_query_results": len(test_results),
+                "sample_result": test_results[0].metadata if test_results else None
+            }
+            
+        except Exception as e:
+            return {
+                "status": "error", 
+                "message": str(e)
+            }
 
     def find_similar_products(self, product_name_or_id: str, top_k: int = 3) -> Dict[str, Any]:
         """Get similar products for a given product"""
@@ -883,18 +916,24 @@ Example of correct response format:
         return base_prompt
 
     def _enhanced_retrieval(self, question: str) -> List[Document]:
-        """Enhanced retrieval with Pinecone"""
+        """Enhanced retrieval with Pinecone using similarity score threshold"""
         try:
             start_time = self.performance_monitor.start_timer("enhanced_retrieval")
             
             # Expand query with synonyms for better matching
             expanded_query = self._expand_query_with_synonyms(question)
             
-            # Use similarity search without score_threshold (not supported by PineconeVectorStore)
-            docs = self.vectorstore.similarity_search(
-                query=expanded_query,
-                k=12  # Increased from 8 for better recall
+            # Use retriever with similarity score threshold for better quality
+            retriever = self.vectorstore.as_retriever(
+                search_type="similarity_score_threshold",
+                search_kwargs={
+                    "k": 12,  # Increased for better recall
+                    "score_threshold": 0.5  # Only return relevant matches
+                }
             )
+            
+            # Get documents using retriever
+            docs = retriever.invoke(expanded_query)
             
             # Extract documents and prioritize in-stock items
             in_stock_docs = []
@@ -909,10 +948,11 @@ Example of correct response format:
             # Prefer in-stock items but include out-of-stock as fallback
             filtered_docs = in_stock_docs[:8] if in_stock_docs else out_of_stock_docs[:8]
             
-            # If still no results, try with lower k value
+            # If no results with score threshold, fall back to regular similarity search
             if not filtered_docs:
+                logger.debug("No results with score threshold, falling back to similarity search")
                 docs_fallback = self.vectorstore.similarity_search(
-                    query=question,  # Use original question as fallback
+                    query=question,
                     k=5
                 )
                 filtered_docs = docs_fallback
