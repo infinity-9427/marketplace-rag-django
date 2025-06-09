@@ -831,9 +831,9 @@ class EnhancedRAGSystem:
         return filtered_products
 
     def _create_enhanced_prompt(self, question: str, context: str, intent: Dict[str, Any], 
-                               history: str, unavailable_info: str, 
-                               include_recommendations: bool, recommendations_text: str = "") -> str:
-        """Create enhanced prompt with STRICT data adherence"""
+                           history: str, unavailable_info: str, 
+                           include_recommendations: bool, recommendations_text: str = "") -> str:
+        """Create enhanced prompt with STRICT data adherence and plain text formatting"""
         
         base_prompt = f"""You are a helpful electronics store assistant. IMPORTANT: Only use information provided in the product data below. Do not invent or hallucinate any details not explicitly stated.
 
@@ -853,19 +853,32 @@ STRICT GUIDELINES:
 - If a detail is not provided, say "I don't have that information" instead of guessing
 - Focus on the actual product name, price, category, brand, and listed features only
 - When recommending alternatives, explain based only on actual product differences (price, category, listed features)
-- Use natural language without markdown formatting
+- Use PLAIN TEXT ONLY - no markdown, no asterisks (*), no bullet points, no special symbols like *, -, =>, etc.
+- Write in natural conversational paragraphs without any formatting symbols
+- Instead of bullet points, use phrases like "First," "Second," "Also," or "Additionally"
+- Do not use any special characters for emphasis or formatting
 
-Example of correct response:
-"The Smart Fitness Tracker costs $199.99 and includes GPS, heart rate monitoring, sleep analysis, and 7-day battery life. For a more budget-friendly option, there's the Basic Fitness Band at $49.99 with step tracking, calorie tracking, heart rate monitoring, and sleep tracking."
+FORMATTING EXAMPLES:
+WRONG: "* Product Name: $99.99 - Description here"
+WRONG: "- Feature 1\n- Feature 2"
+WRONG: "**Bold text**"
+WRONG: "Product => Feature"
+
+CORRECT: "The Product Name costs $99.99 and includes several features. First, it has feature 1. Additionally, it offers feature 2."
+CORRECT: "I found several options for you. The first option is the Product Name at $99.99 which includes the listed features. Another good choice is the Second Product at $79.99."
+
+Example of correct response format:
+"I can help you find some great audio products for Spotify. The Smart Fitness Tracker costs $199.99 and includes GPS, heart rate monitoring, sleep analysis, and 7-day battery life. For a more budget-friendly option, there's the Basic Fitness Band at $49.99 with step tracking, calorie tracking, heart rate monitoring, and sleep tracking. Both products offer good value in their respective price ranges."
 """
-        
+    
         if include_recommendations and recommendations_text:
             base_prompt += """
 - When mentioning similar products, only compare based on actual data provided
 - Explain alternatives using only the features and specifications listed
+- Present alternatives in flowing paragraph format without bullet points or special symbols
 """
-        
-        base_prompt += "\n\nProvide a helpful response using ONLY the information provided above:"
+    
+        base_prompt += "\n\nProvide a helpful response using ONLY the information provided above in plain text format without any special formatting symbols:"
         
         return base_prompt
 
