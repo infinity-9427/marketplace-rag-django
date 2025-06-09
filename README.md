@@ -20,7 +20,7 @@ RAG is an AI architecture that combines the power of large language models (LLMs
 ## 🚀 Tech Stack
 
 - **Backend**: Python Flask API with CORS support
-- **AI/ML**: Google Gemini AI (LLM), LangChain (RAG framework)
+- **AI/ML**: Google Gemini AI (LLM- gemini-2.0-flash), LangChain (RAG framework)
 - **Vector Store**: Pinecone for semantic search and embeddings
 - **Data Sources**: Supabase (PostgreSQL), JSON files, REST APIs with intelligent caching
 - **Embeddings**: Google Text Embedding Model (text-embedding-004)
@@ -491,4 +491,3 @@ curl http://localhost:5000/health
 
 **Built with ❤️ using Python, LangChain, Google Gemini AI, and Pinecone**
 
-For more advanced configurations and enterprise features, see the individual component documentation in the source files.
