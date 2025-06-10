@@ -603,6 +603,11 @@ class EnhancedRAGSystem:
         self.brands = []
         self.is_initialized = False
         
+        # Add phrase tracking for variety
+        self.used_opening_phrases = []
+        self.used_transition_phrases = []
+        self.phrase_rotation_limit = 5  # Remember last 5 phrases to avoid repetition
+        
         # Initialize Pinecone client
         self.pc = None
         self.index = None
@@ -1134,25 +1139,95 @@ class EnhancedRAGSystem:
         
         return cleaned_answer
 
+    def _get_varied_opening_phrases(self) -> str:
+        """Get varied opening phrases to avoid repetition"""
+        opening_phrases = [
+            "I'd be happy to help you with that!",
+            "Great question!",
+            "Let me help you find exactly what you're looking for!",
+            "Perfect timing!",
+            "I've got some excellent options for you!",
+            "You're in luck!",
+            "I can definitely help with that!",
+            "That's a fantastic choice to explore!",
+            "I'm excited to show you what we have!",
+            "Let me share some great options!",
+            "I have just the thing!",
+            "You've come to the right place!",
+            "I'd love to help you discover!",
+            "Here's what I found for you!",
+            "I think you'll really like this!",
+            "This is going to be perfect!",
+            "I'm thrilled to help!",
+            "What a wonderful choice!",
+            "I've got something special!",
+            "Let me show you our best options!"
+        ]
+        
+        # Filter out recently used phrases
+        available_phrases = [p for p in opening_phrases if p not in self.used_opening_phrases]
+        
+        # If all phrases have been used recently, reset the tracking
+        if not available_phrases:
+            self.used_opening_phrases = []
+            available_phrases = opening_phrases
+        
+        # Select a random phrase
+        import random
+        selected_phrase = random.choice(available_phrases)
+        
+        # Track usage
+        self.used_opening_phrases.append(selected_phrase)
+        if len(self.used_opening_phrases) > self.phrase_rotation_limit:
+            self.used_opening_phrases.pop(0)
+        
+        return selected_phrase
+
+    def _get_varied_transition_phrases(self) -> str:
+        """Get varied transition phrases for when products aren't available"""
+        transition_phrases = [
+            "While we don't have that exact item,",
+            "Although that specific product isn't available right now,",
+            "I don't see that particular item in stock, but",
+            "That exact model isn't available at the moment, however",
+            "We're currently out of that specific item, but here's what I found:",
+            "I wish I had that exact product for you, but",
+            "That particular item isn't in our current inventory, though",
+            "Unfortunately we don't carry that specific model, but",
+            "That exact product isn't available right now, but let me show you",
+            "While that particular item isn't in stock,"
+        ]
+        
+        # Filter out recently used phrases
+        available_phrases = [p for p in transition_phrases if p not in self.used_transition_phrases]
+        
+        # If all phrases have been used recently, reset the tracking
+        if not available_phrases:
+            self.used_transition_phrases = []
+            available_phrases = transition_phrases
+        
+        # Select a random phrase
+        import random
+        selected_phrase = random.choice(available_phrases)
+        
+        # Track usage
+        self.used_transition_phrases.append(selected_phrase)
+        if len(self.used_transition_phrases) > self.phrase_rotation_limit:
+            self.used_transition_phrases.pop(0)
+        
+        return selected_phrase
+
     def _create_enhanced_prompt(self, question: str, context: str, intent: Dict[str, Any], 
                    history: str, unavailable_info: str, 
                    include_recommendations: bool, recommendations_text: str = "") -> str:
-        """Create enhanced prompt with natural conversational style and time-based greetings"""
+        """Create enhanced prompt with varied conversational style and strict formatting constraints"""
 
-        # Get time-based greeting
-        current_hour = datetime.now().hour
-        if 5 <= current_hour < 12:
-            greeting = "Good morning!"
-        elif 12 <= current_hour < 17:
-            greeting = "Good afternoon!"
-        elif 17 <= current_hour < 21:
-            greeting = "Good evening!"
-        else:
-            greeting = "Hey there!"
-    
-        # Only use greeting for the first interaction
-        use_greeting = not self.conversation_history or len(self.conversation_history) == 0
-    
+        # Get varied opening phrase
+        opening_phrase = self._get_varied_opening_phrases()
+        
+        # Get varied transition phrase for unavailable items
+        transition_phrase = self._get_varied_transition_phrases()
+
         base_prompt = f"""You are a helpful and friendly shopping assistant for an electronics store.
 
 CUSTOMER QUESTION: {question}
@@ -1163,66 +1238,49 @@ AVAILABLE PRODUCTS:
 {recommendations_text}
 
 RESPONSE GUIDELINES:
-1. {"Start with: " + greeting if use_greeting else "Be friendly and conversational"}
-2. When a specific product isn't available, acknowledge this warmly and pivot to helpful alternatives
-3. Focus on what we DO have that could meet their needs or complement their interests
-4. Use enthusiastic, natural language like talking to a good friend
-5. Present alternatives as exciting opportunities, not consolation prizes
-6. Mention prices naturally and highlight any savings
-7. Compare products when multiple options exist
-8. Keep responses concise but informative
-9. NEVER mention technical system details or data information
-10. Use plain text only - NO MARKDOWN or special formatting
-11. End with a helpful question or offer to assist further
-12. Guide toward exploring our available products naturally
-13. VARY your opening phrases - avoid repetitive starts like "I'd love to help" every time
+1. Start with this specific opening: "{opening_phrase}"
+2. When products aren't available, use this transition: "{transition_phrase}"
+3. Focus on what we DO have that meets their needs
+4. Use natural, conversational language - like talking to a friend
+5. Mention prices naturally and highlight savings
+6. Compare products when multiple options exist
+7. Keep responses conversational but informative
+8. End with a helpful question or offer to assist further
 
-VOICE & TONE STYLE:
-- Sound genuinely excited to help them find something perfect
-- Use varied, warm, enthusiastic phrases like:
-  • "Let me help you with that!"
-  • "Here's what I'm thinking might work perfectly for you..."
-  • "Great question! Let me show you some amazing options we have..."
-  • "You know what? I have some fantastic alternatives that might be even better!"
-  • "Perfect timing! I'm excited to share these with you..."
-  • "Absolutely! Here's what we have that could work wonderfully..."
-  • "I've got just the thing! Check out these options..."
-  • "What a great question! Let me find something special for you..."
+STRICT FORMATTING CONSTRAINTS:
+- NEVER use any markdown formatting (**bold**, *italic*, __underline__, etc.)
+- NEVER use bullet points (-, *, +) or numbered lists (1., 2., 3.)
+- NEVER use special characters for emphasis
+- NEVER use headers (# ## ###)
+- NEVER use code blocks or backticks
+- Write in flowing paragraphs with natural breaks
+- Use only plain text and natural punctuation
+- Vary your sentence structure and avoid repetitive patterns
 
-HANDLING UNAVAILABLE ITEMS:
-When the specific item isn't available:
-1. Acknowledge their request warmly ("I'd love to help you find a [item]!")
-2. Explain we don't currently have that specific item in a positive way
-3. Immediately pivot to exciting alternatives from our current inventory
-4. Focus on products that could serve similar purposes or complement their needs
-5. Present alternatives as discoveries, not substitutes
-6. Ask if they'd like to explore what we do have or if there's something specific they're looking for
+VOICE & TONE REQUIREMENTS:
+- Sound genuinely enthusiastic and helpful
+- Use varied sentence structures
+- Avoid repetitive phrases or patterns
+- Mix short and long sentences naturally
+- Show excitement about the products
+- Be conversational but professional
 
-VARIED OPENING PATTERNS:
-- Question type: "Great question!", "Perfect question!", "What a fantastic question!"
-- Action type: "Let me help!", "I'm on it!", "I've got you covered!"
-- Excitement type: "Perfect timing!", "You've come to the right place!", "I'm excited to help!"
-- Product-focused: "I know just the thing!", "I have some amazing options!", "Let me show you what we have!"
-
-
-FORMATTING RULES:
-- NO markdown syntax (**, __, *, _, etc.)
-- NO bullet points or numbered lists  
-- NO special characters for emphasis
-- Write in flowing, natural conversation
-- Sound genuinely excited and helpful
-
-CONSTRAINTS:
-- Focus exclusively on products we actually have in stock
+CONTENT RULES:
+- Only mention products we actually have in stock
 - Don't invent features or specifications
-- If information is missing, acknowledge it helpfully
-- Always stay within our electronics store scope
-- Guide customers toward our available inventory in an exciting way
-- Make them feel like they're discovering something special
+- If details are missing, acknowledge it helpfully
+- Guide customers toward our available inventory naturally
+- Make alternatives sound exciting, not like consolations
+- Never mention technical system details, databases, or data freshness
 
+RESPONSE STRUCTURE:
+1. Open with the provided phrase
+2. Address their specific need
+3. Present our available options enthusiastically
+4. Highlight key benefits and pricing
+5. End with engagement (question or offer to help more)
 
-REMEMBER:
-Your goal is to make the user feel understood, supported, and provide a warm, enthusiastic response that makes the customer feel valued and excited about exploring our available products:"""
+REMEMBER: Your goal is to make customers feel excited about our available products while maintaining natural, varied conversation patterns."""
     
         return base_prompt
 
