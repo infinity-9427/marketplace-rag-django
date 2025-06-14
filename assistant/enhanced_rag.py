@@ -1245,8 +1245,18 @@ class EnhancedRAGSystem:
                    include_recommendations: bool, recommendations_text: str = "") -> str:
         """Create enhanced prompt with varied conversational style and strict formatting constraints"""
 
-        # Get varied opening phrase
-        opening_phrase = self._get_varied_opening_phrases()
+        # Check if we have products and if the question is marketplace-related
+        has_products = bool(context.strip())
+        is_marketplace_question = any(keyword in question.lower() for keyword in [
+            'product', 'item', 'price', 'cost', 'buy', 'purchase', 'shop', 'store',
+            'available', 'stock', 'inventory', 'camera', 'headphones', 'speaker',
+            'phone', 'laptop', 'watch', 'coffee', 'kitchen', 'appliance'
+        ])
+
+        # Only get opening phrase if we have products and it's a marketplace question
+        opening_phrase = ""
+        if has_products and is_marketplace_question:
+            opening_phrase = self._get_varied_opening_phrases()
         
         # Get varied transition phrase for unavailable items
         transition_phrase = self._get_varied_transition_phrases()
@@ -1261,7 +1271,7 @@ AVAILABLE PRODUCTS:
 {recommendations_text}
 
 RESPONSE GUIDELINES:
-1. Start with this specific opening: "{opening_phrase}"
+1. {"Start with this specific opening: \"" + opening_phrase + "\"" if opening_phrase else "Start naturally without a pre-defined opening"}
 2. When products aren't available, use this transition: "{transition_phrase}"
 3. Focus on what we DO have that meets their needs
 4. Use natural, conversational language - like talking to a friend
@@ -1297,7 +1307,7 @@ CONTENT RULES:
 - Never mention technical system details, databases, or data freshness
 
 RESPONSE STRUCTURE:
-1. Open with the provided phrase
+1. {"Open with the provided phrase" if opening_phrase else "Start naturally based on the context"}
 2. Address their specific need
 3. Present our available options enthusiastically
 4. Highlight key benefits and pricing
