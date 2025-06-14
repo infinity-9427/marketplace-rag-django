@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
 from collections import defaultdict
 from sklearn.metrics.pairwise import cosine_similarity
+import threading
 
 # Updated imports for Pinecone
 from pinecone import Pinecone, ServerlessSpec
@@ -591,7 +592,7 @@ class EnhancedRAGSystem:
     def __init__(self, data_source: Optional[Union[DataSource, str]] = None):
         logger.info("🚀 Initializing Enhanced RAG System...")
         
-        self.data_handler = DataHandler(enable_cache=False)
+        self.data_handler = DataHandler(enable_cache=True)  # Enable caching
         self.performance_monitor = PerformanceMonitor()
         self.vectorstore = None
         self.qa_chain = None
@@ -602,11 +603,13 @@ class EnhancedRAGSystem:
         self.categories = {}
         self.brands = []
         self.is_initialized = False
+        self.last_data_refresh = 0
+        self.data_refresh_interval = 300  # 5 minutes
         
         # Add phrase tracking for variety
         self.used_opening_phrases = []
         self.used_transition_phrases = []
-        self.phrase_rotation_limit = 5  # Remember last 5 phrases to avoid repetition
+        self.phrase_rotation_limit = 5
         
         # Initialize Pinecone client
         self.pc = None
@@ -618,13 +621,13 @@ class EnhancedRAGSystem:
             data_source = DataSource(
                 source_type='supabase', 
                 location='products',
-                cache_duration=0  # Always fetch fresh data
+                cache_duration=300  # 5 minutes cache
             )
         elif isinstance(data_source, str):
             if data_source.endswith('.json'):
                 data_source = DataSource(source_type='file', location=data_source)
             else:
-                data_source = DataSource(source_type='supabase', location=data_source, cache_duration=0)
+                data_source = DataSource(source_type='supabase', location=data_source, cache_duration=300)
         
         self.data_source = data_source
         
@@ -633,15 +636,133 @@ class EnhancedRAGSystem:
         self._initialize_pinecone()
         self.similarity_engine = ProductSimilarityEngine(self.embeddings)
         
-        # IMMEDIATE DATA LOADING AND INDEXING ON STARTUP
-        logger.info("🔄 Loading and indexing data immediately on startup...")
-        startup_success = self.initial_data_load()
-        if startup_success:
-            logger.info("✅ Initial data loading and indexing completed successfully")
-            self.is_initialized = True
-        else:
-            logger.warning("⚠️ Initial data loading failed, will retry on first query")
-    
+        # Load cached data immediately if available
+        self._load_cached_data()
+        
+        # Start background refresh
+        self._start_background_refresh()
+
+    def _load_cached_data(self):
+        """Load cached data immediately if available"""
+        try:
+            cached_data = self.data_handler.load_data(self.data_source)
+            if cached_data:
+                self.products_data = cached_data
+                self.categories = self.data_handler.get_categories(cached_data)
+                self.brands = self.data_handler.get_brands(cached_data)
+                self.similarity_engine.update_products(cached_data)
+                self.is_initialized = True
+                logger.info(f"✅ Loaded {len(cached_data)} products from cache")
+        except Exception as e:
+            logger.warning(f"Could not load cached data: {e}")
+
+    def _start_background_refresh(self):
+        """Start background data refresh thread"""
+        def refresh_worker():
+            while True:
+                try:
+                    time.sleep(self.data_refresh_interval)
+                    self.refresh_data_before_query(force_refresh=True)
+                except Exception as e:
+                    logger.error(f"Error in background refresh: {e}")
+                    time.sleep(60)  # Wait a minute before retrying
+        
+        refresh_thread = threading.Thread(target=refresh_worker)
+        refresh_thread.daemon = True
+        refresh_thread.start()
+
+    def refresh_data_before_query(self, force_refresh: bool = False) -> bool:
+        """Refresh data before each query to ensure latest information"""
+        try:
+            current_time = time.time()
+            
+            # Check if refresh is needed
+            if not force_refresh and (current_time - self.last_data_refresh) < self.data_refresh_interval:
+                return True
+            
+            if not self.pinecone_manager:
+                return False
+            
+            # Check if we need to refresh
+            if force_refresh or self.pinecone_manager.should_refresh():
+                logger.info("🔄 Refreshing data before query...")
+                success = self.pinecone_manager.refresh_pinecone_data(force_refresh=force_refresh)
+                if success:
+                    self.last_data_refresh = current_time
+                return success
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error refreshing data before query: {e}")
+            return False
+
+    def get_answer(self, question: str, include_recommendations: bool = True) -> Dict[str, Any]:
+        """Get answer with fresh data validation and optional refresh"""
+        start_time = self.performance_monitor.start_timer("get_answer")
+        
+        try:
+            # Ensure system is initialized
+            if not self.is_initialized:
+                logger.warning("System not initialized, attempting initialization...")
+                if not self.initial_data_load():
+                    return {
+                        "answer": "System is still initializing. Please try again in a moment.",
+                        "sources": [],
+                        "response_type": "initializing",
+                        "error": "System not initialized"
+                    }
+                self.is_initialized = True
+            
+            # Only refresh if necessary
+            if not self.products_data:
+                self.refresh_data_before_query(force_refresh=True)
+            
+            # Validate inputs
+            if not question or not question.strip():
+                return {
+                    "answer": "Please provide a valid question.",
+                    "sources": [],
+                    "response_type": "error",
+                    "error": "Empty question"
+                }
+            
+            # Enhanced retrieval with existing indexed data
+            docs = self._enhanced_retrieval(question.strip())
+            
+            # Generate response
+            response = self._generate_response(question.strip(), docs, include_recommendations)
+            
+            # Add product recommendations if enabled
+            if include_recommendations and docs:
+                recommendations = self._get_contextual_recommendations(docs, question)
+                if recommendations:
+                    response['recommendations'] = recommendations
+            
+            # Add metadata with data freshness info
+            response.update({
+                'total_products': len(self.products_data),
+                'data_ready': bool(self.products_data),
+                'data_freshness': self._get_data_freshness(),
+                'response_time': time.time() - start_time
+            })
+            
+            # Update conversation history
+            self._update_conversation_history(question, response['answer'])
+            
+            self.performance_monitor.end_timer("get_answer", start_time)
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error in get_answer: {e}")
+            traceback.print_exc()
+            return {
+                "answer": "I encountered an error while processing your question. Please try again.",
+                "sources": [],
+                "response_type": "error",
+                "error": str(e)
+            }
+
     def initial_data_load(self) -> bool:
         """Load and index data immediately on startup with validation"""
         try:
@@ -844,104 +965,6 @@ class EnhancedRAGSystem:
         except Exception as e:
             logger.error(f"Error initializing Pinecone: {e}")
             raise
-    
-    def refresh_data_before_query(self) -> bool:
-        """Refresh data before each query to ensure latest information"""
-        try:
-            if not self.pinecone_manager:
-                return False
-            
-            # Check if we need to refresh (time-based or force refresh every 5 minutes)
-            if self.pinecone_manager.should_refresh():
-                logger.info("🔄 Refreshing data before query to ensure latest information...")
-                return self.pinecone_manager.refresh_pinecone_data(force_refresh=True)
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error refreshing data before query: {e}")
-            return False
-
-    def get_answer(self, question: str, include_recommendations: bool = True) -> Dict[str, Any]:
-        """Get answer with fresh data validation and optional refresh"""
-        start_time = self.performance_monitor.start_timer("get_answer")
-        
-        try:
-            # Ensure system is initialized
-            if not self.is_initialized:
-                logger.warning("System not initialized, attempting initialization...")
-                if not self.initial_data_load():
-                    return {
-                        "answer": "System is still initializing. Please try again in a moment.",
-                        "sources": [],
-                        "response_type": "initializing",
-                        "error": "System not initialized"
-                    }
-                self.is_initialized = True
-            
-            # Refresh data before query to ensure latest information
-            self.refresh_data_before_query()
-            
-            # Check current data state
-            stats = self.index.describe_index_stats() if self.index else {}
-            vector_count = stats.get('total_vector_count', 0)
-            
-            if vector_count == 0:
-                logger.warning("No vectors in Pinecone, forcing immediate refresh...")
-                refresh_success = self.pinecone_manager.refresh_pinecone_data(force_refresh=True)
-                if not refresh_success:
-                    return {
-                        "answer": "I'm still loading the product database. Please try again in a moment.",
-                        "sources": [],
-                        "response_type": "loading",
-                        "error": "No indexed data available"
-                    }
-            
-            # Validate inputs
-            if not question or not question.strip():
-                return {
-                    "answer": "Please provide a valid question.",
-                    "sources": [],
-                    "response_type": "error",
-                    "error": "Empty question"
-                }
-            
-            # Enhanced retrieval with existing indexed data
-            docs = self._enhanced_retrieval(question.strip())
-            
-            # Generate response
-            response = self._generate_response(question.strip(), docs, include_recommendations)
-            
-            # Add product recommendations if enabled
-            if include_recommendations and docs:
-                recommendations = self._get_contextual_recommendations(docs, question)
-                if recommendations:
-                    response['recommendations'] = recommendations
-            
-            # Add metadata with data freshness info
-            response.update({
-                'total_products': len(self.products_data),
-                'pinecone_vectors': vector_count,
-                'data_ready': vector_count > 0,
-                'data_freshness': self._get_data_freshness(),
-                'last_refresh': self.pinecone_manager.last_refresh_time if self.pinecone_manager else None
-            })
-            
-            # Update conversation history
-            self._update_conversation_history(question, response['answer'])
-            
-            self.performance_monitor.end_timer("get_answer", start_time)
-            return response
-            
-        except Exception as e:
-            logger.error(f"Error in get_answer: {e}")
-            traceback.print_exc()
-            return {
-                "answer": "I encountered an error while processing your question. Please try again.",
-                "sources": [],
-                "response_type": "error",
-                "error": str(e)
-            }
     
     def _get_data_freshness(self) -> str:
         """Get human-readable data freshness information"""

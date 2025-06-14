@@ -1,0 +1,876 @@
+{
+  "timestamp": "2025-06-14T00:15:53.945443",
+  "data": [
+    {
+      "id": "1",
+      "name": "Wireless Noise-Canceling Headphones",
+      "price": 299.99,
+      "originalPrice": 399.99,
+      "description": "Premium wireless headphones with industry-leading noise cancellation and 30-hour battery life.",
+      "category": "Electronics",
+      "subcategory": "Audio",
+      "brand": "AudioTech",
+      "image": "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&h=300&fit=crop",
+      "features": [
+        "Active Noise Cancellation with 8 microphones",
+        "30-hour battery life with quick charge",
+        "Premium comfort with memory foam cushions",
+        "High-quality audio with custom drivers",
+        "Multipoint Bluetooth connection"
+      ],
+      "tags": [
+        "wireless",
+        "noise-canceling",
+        "bluetooth",
+        "premium",
+        "long-battery"
+      ],
+      "specifications": {
+        "weight": "250g",
+        "driverSize": "40mm",
+        "batteryLife": "30 hours",
+        "connectivity": "Bluetooth 5.0"
+      },
+      "inStock": true,
+      "price_range": "premium",
+      "discount_percentage": 25.0,
+      "search_text": "Wireless Noise-Canceling Headphones Premium wireless headphones with industry-leading noise cancellation and 30-hour battery life. Electronics Audio AudioTech Active Noise Cancellation with 8 microphones 30-hour battery life with quick charge Premium comfort with memory foam cushions High-quality audio with custom drivers Multipoint Bluetooth connection wireless noise-canceling bluetooth premium long-battery weight 250g driverSize 40mm batteryLife 30 hours connectivity Bluetooth 5.0"
+    },
+    {
+      "id": "2",
+      "name": "Smart Fitness Tracker",
+      "price": 199.99,
+      "originalPrice": 249.99,
+      "description": "Advanced fitness tracker with GPS, heart rate monitoring, and 7-day battery life.",
+      "category": "Wearables",
+      "subcategory": "Fitness",
+      "brand": "FitPro",
+      "image": "https://images.unsplash.com/photo-1575311373937-040b8e1fd5b6?w=500&h=300&fit=crop",
+      "features": [
+        "Built-in GPS for accurate tracking",
+        "24/7 heart rate monitoring",
+        "Sleep quality analysis",
+        "Water-resistant up to 50 meters",
+        "Smart notifications and app ecosystem"
+      ],
+      "tags": [
+        "fitness",
+        "gps",
+        "heart-rate",
+        "waterproof",
+        "health"
+      ],
+      "specifications": {
+        "sensors": [
+          "GPS",
+          "Heart Rate",
+          "Accelerometer"
+        ],
+        "batteryLife": "7 days",
+        "displaySize": "1.4 inches",
+        "waterResistance": "50m"
+      },
+      "inStock": true,
+      "price_range": "mid-range",
+      "discount_percentage": 20.0,
+      "search_text": "Smart Fitness Tracker Advanced fitness tracker with GPS, heart rate monitoring, and 7-day battery life. Wearables Fitness FitPro Built-in GPS for accurate tracking 24/7 heart rate monitoring Sleep quality analysis Water-resistant up to 50 meters Smart notifications and app ecosystem fitness gps heart-rate waterproof health sensors ['GPS', 'Heart Rate', 'Accelerometer'] batteryLife 7 days displaySize 1.4 inches waterResistance 50m"
+    },
+    {
+      "id": "3",
+      "name": "Ergonomic Office Chair",
+      "price": 449.99,
+      "originalPrice": 449.99,
+      "description": "Professional ergonomic office chair with lumbar support and adjustable features.",
+      "category": "Furniture",
+      "subcategory": "Office",
+      "brand": "ErgoComfort",
+      "image": "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=500&h=300&fit=crop",
+      "features": [
+        "Adjustable lumbar support",
+        "Height and tilt adjustment",
+        "Breathable mesh fabric",
+        "360-degree swivel base",
+        "Weight capacity up to 300 lbs"
+      ],
+      "tags": [
+        "ergonomic",
+        "office",
+        "adjustable",
+        "lumbar-support",
+        "professional"
+      ],
+      "specifications": {
+        "material": "Mesh fabric",
+        "warranty": "5 years",
+        "adjustments": [
+          "height",
+          "tilt",
+          "lumbar"
+        ],
+        "weightCapacity": "300 lbs"
+      },
+      "inStock": false,
+      "price_range": "premium",
+      "discount_percentage": 0.0,
+      "search_text": "Ergonomic Office Chair Professional ergonomic office chair with lumbar support and adjustable features. Furniture Office ErgoComfort Adjustable lumbar support Height and tilt adjustment Breathable mesh fabric 360-degree swivel base Weight capacity up to 300 lbs ergonomic office adjustable lumbar-support professional material Mesh fabric warranty 5 years adjustments ['height', 'tilt', 'lumbar'] weightCapacity 300 lbs"
+    },
+    {
+      "id": "4",
+      "name": "Portable Bluetooth Speaker",
+      "price": 89.99,
+      "originalPrice": 119.99,
+      "description": "Waterproof portable speaker with 360-degree sound and 20-hour battery life.",
+      "category": "Electronics",
+      "subcategory": "Audio",
+      "brand": "SoundWave",
+      "image": "https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=500&h=300&fit=crop",
+      "features": [
+        "360-degree surround sound",
+        "IPX7 waterproof rating",
+        "20-hour battery life",
+        "Wireless stereo pairing",
+        "Built-in microphone for calls"
+      ],
+      "tags": [
+        "portable",
+        "bluetooth",
+        "waterproof",
+        "360-sound",
+        "long-battery"
+      ],
+      "specifications": {
+        "power": "20W",
+        "waterproof": "IPX7",
+        "batteryLife": "20 hours",
+        "connectivity": "Bluetooth 5.0"
+      },
+      "inStock": true,
+      "price_range": "mid-range",
+      "discount_percentage": 25.0,
+      "search_text": "Portable Bluetooth Speaker Waterproof portable speaker with 360-degree sound and 20-hour battery life. Electronics Audio SoundWave 360-degree surround sound IPX7 waterproof rating 20-hour battery life Wireless stereo pairing Built-in microphone for calls portable bluetooth waterproof 360-sound long-battery power 20W waterproof IPX7 batteryLife 20 hours connectivity Bluetooth 5.0"
+    },
+    {
+      "id": "5",
+      "name": "Smart Home Security Camera",
+      "price": 159.99,
+      "originalPrice": 159.99,
+      "description": "AI-powered security camera with 4K video, night vision, and smart alerts.",
+      "category": "Smart Home",
+      "subcategory": "Security",
+      "brand": "SecureVision",
+      "image": "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=500&h=300&fit=crop",
+      "features": [
+        "4K Ultra HD video recording",
+        "Advanced night vision",
+        "AI person and vehicle detection",
+        "Two-way audio communication",
+        "Cloud and local storage options"
+      ],
+      "tags": [
+        "security",
+        "4k",
+        "night-vision",
+        "ai-detection",
+        "smart-home"
+      ],
+      "specifications": {
+        "storage": [
+          "Cloud",
+          "Local"
+        ],
+        "detection": "AI-powered",
+        "resolution": "4K Ultra HD",
+        "nightVision": "Advanced IR"
+      },
+      "inStock": true,
+      "price_range": "mid-range",
+      "discount_percentage": 0.0,
+      "search_text": "Smart Home Security Camera AI-powered security camera with 4K video, night vision, and smart alerts. Smart Home Security SecureVision 4K Ultra HD video recording Advanced night vision AI person and vehicle detection Two-way audio communication Cloud and local storage options security 4k night-vision ai-detection smart-home storage ['Cloud', 'Local'] detection AI-powered resolution 4K Ultra HD nightVision Advanced IR"
+    },
+    {
+      "id": "6",
+      "name": "Premium Coffee Maker",
+      "price": 249.99,
+      "originalPrice": 299.99,
+      "description": "Programmable drip coffee maker with thermal carafe and customizable brewing options.",
+      "category": "Kitchen",
+      "subcategory": "Appliances",
+      "brand": "BrewMaster",
+      "image": "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=500&h=300&fit=crop",
+      "features": [
+        "12-cup thermal carafe",
+        "Programmable 24-hour timer",
+        "Adjustable brew strength",
+        "Auto shut-off safety feature",
+        "Permanent gold-tone filter included"
+      ],
+      "tags": [
+        "coffee",
+        "programmable",
+        "thermal",
+        "12-cup",
+        "premium"
+      ],
+      "specifications": {
+        "capacity": "12 cups",
+        "carafeType": "Thermal",
+        "filterType": "Gold-tone permanent",
+        "programmable": true
+      },
+      "inStock": true,
+      "price_range": "premium",
+      "discount_percentage": 16.7,
+      "search_text": "Premium Coffee Maker Programmable drip coffee maker with thermal carafe and customizable brewing options. Kitchen Appliances BrewMaster 12-cup thermal carafe Programmable 24-hour timer Adjustable brew strength Auto shut-off safety feature Permanent gold-tone filter included coffee programmable thermal 12-cup premium capacity 12 cups carafeType Thermal filterType Gold-tone permanent programmable True"
+    },
+    {
+      "id": "7",
+      "name": "Mechanical Gaming Keyboard",
+      "price": 129.99,
+      "originalPrice": 129.99,
+      "description": "RGB mechanical keyboard with tactile switches and customizable lighting effects.",
+      "category": "Gaming",
+      "subcategory": "Peripherals",
+      "brand": "GamePro",
+      "image": "https://images.unsplash.com/photo-1541140532154-b024d705b90a?w=500&h=300&fit=crop",
+      "features": [
+        "Mechanical tactile switches",
+        "RGB backlighting with effects",
+        "Anti-ghosting technology",
+        "Programmable macro keys",
+        "Detachable USB-C cable"
+      ],
+      "tags": [
+        "mechanical",
+        "gaming",
+        "rgb",
+        "tactile",
+        "programmable"
+      ],
+      "specifications": {
+        "keyLayout": "Full-size",
+        "switchType": "Mechanical tactile",
+        "backlighting": "RGB",
+        "connectivity": "USB-C"
+      },
+      "inStock": true,
+      "price_range": "mid-range",
+      "discount_percentage": 0.0,
+      "search_text": "Mechanical Gaming Keyboard RGB mechanical keyboard with tactile switches and customizable lighting effects. Gaming Peripherals GamePro Mechanical tactile switches RGB backlighting with effects Anti-ghosting technology Programmable macro keys Detachable USB-C cable mechanical gaming rgb tactile programmable keyLayout Full-size switchType Mechanical tactile backlighting RGB connectivity USB-C"
+    },
+    {
+      "id": "8",
+      "name": "Wireless Charging Pad",
+      "price": 39.99,
+      "originalPrice": 59.99,
+      "description": "Fast wireless charging pad compatible with all Qi-enabled devices.",
+      "category": "Accessories",
+      "subcategory": "Charging",
+      "brand": "ChargeTech",
+      "image": "https://images.unsplash.com/photo-1609592193419-8e3c0c7c9b3e?w=500&h=300&fit=crop",
+      "features": [
+        "10W fast wireless charging",
+        "Qi-certified compatibility",
+        "LED charging indicator",
+        "Non-slip surface design",
+        "Overcharge protection"
+      ],
+      "tags": [
+        "wireless-charging",
+        "qi-compatible",
+        "fast-charging",
+        "accessory",
+        "safe"
+      ],
+      "specifications": {
+        "power": "10W",
+        "safety": "Overcharge protection",
+        "indicator": "LED",
+        "compatibility": "Qi-enabled devices"
+      },
+      "inStock": true,
+      "price_range": "budget",
+      "discount_percentage": 33.3,
+      "search_text": "Wireless Charging Pad Fast wireless charging pad compatible with all Qi-enabled devices. Accessories Charging ChargeTech 10W fast wireless charging Qi-certified compatibility LED charging indicator Non-slip surface design Overcharge protection wireless-charging qi-compatible fast-charging accessory safe power 10W safety Overcharge protection indicator LED compatibility Qi-enabled devices"
+    },
+    {
+      "id": "9",
+      "name": "Studio Monitor Headphones",
+      "price": 199.99,
+      "originalPrice": 199.99,
+      "description": "Professional studio monitor headphones with flat frequency response and exceptional clarity.",
+      "category": "Electronics",
+      "subcategory": "Audio",
+      "brand": "AudioTech",
+      "image": "https://images.unsplash.com/photo-1583394838336-acd977736f90?w=500&h=300&fit=crop",
+      "features": [
+        "Flat frequency response",
+        "Open-back design for natural sound",
+        "Detachable cable",
+        "Comfortable over-ear design",
+        "Professional-grade drivers"
+      ],
+      "tags": [
+        "studio",
+        "monitor",
+        "professional",
+        "open-back",
+        "flat-response"
+      ],
+      "specifications": {
+        "design": "Open-back",
+        "frequency": "5Hz-35kHz",
+        "impedance": "250 ohms",
+        "driverSize": "40mm"
+      },
+      "inStock": true,
+      "price_range": "mid-range",
+      "discount_percentage": 0.0,
+      "search_text": "Studio Monitor Headphones Professional studio monitor headphones with flat frequency response and exceptional clarity. Electronics Audio AudioTech Flat frequency response Open-back design for natural sound Detachable cable Comfortable over-ear design Professional-grade drivers studio monitor professional open-back flat-response design Open-back frequency 5Hz-35kHz impedance 250 ohms driverSize 40mm"
+    },
+    {
+      "id": "10",
+      "name": "Budget Wireless Headphones",
+      "price": 79.99,
+      "originalPrice": 99.99,
+      "description": "Affordable wireless headphones with good sound quality and 25-hour battery life.",
+      "category": "Electronics",
+      "subcategory": "Audio",
+      "brand": "SoundWave",
+      "image": "https://images.unsplash.com/photo-1524678606370-a47ad25cb82a?w=500&h=300&fit=crop",
+      "features": [
+        "25-hour battery life",
+        "Lightweight design",
+        "Clear call quality",
+        "Foldable for portability",
+        "Quick charge feature"
+      ],
+      "tags": [
+        "budget",
+        "wireless",
+        "lightweight",
+        "long-battery",
+        "portable"
+      ],
+      "specifications": {
+        "weight": "180g",
+        "batteryLife": "25 hours",
+        "quickCharge": "2 hours for full charge",
+        "connectivity": "Bluetooth 5.0"
+      },
+      "inStock": true,
+      "price_range": "mid-range",
+      "discount_percentage": 20.0,
+      "search_text": "Budget Wireless Headphones Affordable wireless headphones with good sound quality and 25-hour battery life. Electronics Audio SoundWave 25-hour battery life Lightweight design Clear call quality Foldable for portability Quick charge feature budget wireless lightweight long-battery portable weight 180g batteryLife 25 hours quickCharge 2 hours for full charge connectivity Bluetooth 5.0"
+    },
+    {
+      "id": "11",
+      "name": "Advanced Sports Watch",
+      "price": 349.99,
+      "originalPrice": 349.99,
+      "description": "Premium sports watch with advanced metrics, GPS, and multi-sport tracking.",
+      "category": "Wearables",
+      "subcategory": "Fitness",
+      "brand": "SportsTech",
+      "image": "https://images.unsplash.com/photo-1434494878577-86c23bcb06b9?w=500&h=300&fit=crop",
+      "features": [
+        "Multi-sport tracking modes",
+        "Advanced performance metrics",
+        "Built-in GPS and GLONASS",
+        "10-day battery life",
+        "Rugged design with sapphire glass"
+      ],
+      "tags": [
+        "sports",
+        "premium",
+        "gps",
+        "multi-sport",
+        "rugged"
+      ],
+      "specifications": {
+        "glass": "Sapphire crystal",
+        "sensors": [
+          "GPS",
+          "GLONASS",
+          "Heart Rate",
+          "Barometer"
+        ],
+        "batteryLife": "10 days",
+        "waterResistance": "100m"
+      },
+      "inStock": true,
+      "price_range": "premium",
+      "discount_percentage": 0.0,
+      "search_text": "Advanced Sports Watch Premium sports watch with advanced metrics, GPS, and multi-sport tracking. Wearables Fitness SportsTech Multi-sport tracking modes Advanced performance metrics Built-in GPS and GLONASS 10-day battery life Rugged design with sapphire glass sports premium gps multi-sport rugged glass Sapphire crystal sensors ['GPS', 'GLONASS', 'Heart Rate', 'Barometer'] batteryLife 10 days waterResistance 100m"
+    },
+    {
+      "id": "12",
+      "name": "Basic Fitness Band",
+      "price": 49.99,
+      "originalPrice": 79.99,
+      "description": "Simple and affordable fitness band with step tracking and heart rate monitoring.",
+      "category": "Wearables",
+      "subcategory": "Fitness",
+      "brand": "FitBasic",
+      "image": "https://images.unsplash.com/photo-1544117519-31a4b719223d?w=500&h=300&fit=crop",
+      "features": [
+        "Step and calorie tracking",
+        "Heart rate monitoring",
+        "Sleep tracking",
+        "14-day battery life",
+        "Water-resistant design"
+      ],
+      "tags": [
+        "basic",
+        "affordable",
+        "step-tracking",
+        "heart-rate",
+        "simple"
+      ],
+      "specifications": {
+        "display": "OLED",
+        "batteryLife": "14 days",
+        "connectivity": "Bluetooth 4.0",
+        "waterResistance": "5ATM"
+      },
+      "inStock": true,
+      "price_range": "budget",
+      "discount_percentage": 37.5,
+      "search_text": "Basic Fitness Band Simple and affordable fitness band with step tracking and heart rate monitoring. Wearables Fitness FitBasic Step and calorie tracking Heart rate monitoring Sleep tracking 14-day battery life Water-resistant design basic affordable step-tracking heart-rate simple display OLED batteryLife 14 days connectivity Bluetooth 4.0 waterResistance 5ATM"
+    },
+    {
+      "id": "13",
+      "name": "Resistance Bands Set",
+      "price": 29.99,
+      "originalPrice": 29.99,
+      "description": "Complete resistance bands set with multiple resistance levels and accessories.",
+      "category": "Fitness",
+      "subcategory": "Equipment",
+      "brand": "FlexFit",
+      "image": "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=500&h=300&fit=crop",
+      "features": [
+        "5 resistance levels",
+        "Door anchor included",
+        "Foam handles for comfort",
+        "Carrying bag included",
+        "Exercise guide provided"
+      ],
+      "tags": [
+        "resistance",
+        "bands",
+        "home-gym",
+        "portable",
+        "complete-set"
+      ],
+      "specifications": {
+        "material": "Natural latex",
+        "accessories": [
+          "Door anchor",
+          "Handles",
+          "Bag"
+        ],
+        "maxResistance": "150 lbs",
+        "resistanceLevels": 5
+      },
+      "inStock": true,
+      "price_range": "budget",
+      "discount_percentage": 0.0,
+      "search_text": "Resistance Bands Set Complete resistance bands set with multiple resistance levels and accessories. Fitness Equipment FlexFit 5 resistance levels Door anchor included Foam handles for comfort Carrying bag included Exercise guide provided resistance bands home-gym portable complete-set material Natural latex accessories ['Door anchor', 'Handles', 'Bag'] maxResistance 150 lbs resistanceLevels 5"
+    },
+    {
+      "id": "14",
+      "name": "Executive Leather Chair",
+      "price": 599.99,
+      "originalPrice": 599.99,
+      "description": "Premium executive chair with genuine leather upholstery and advanced ergonomics.",
+      "category": "Furniture",
+      "subcategory": "Office",
+      "brand": "LuxurySeating",
+      "image": "https://images.unsplash.com/photo-1506439773649-6e0eb8cfb237?w=500&h=300&fit=crop",
+      "features": [
+        "Genuine leather upholstery",
+        "Advanced lumbar support",
+        "Heated and massage functions",
+        "Memory foam cushioning",
+        "Premium gas cylinder"
+      ],
+      "tags": [
+        "executive",
+        "leather",
+        "premium",
+        "heated",
+        "massage"
+      ],
+      "specifications": {
+        "features": [
+          "Heating",
+          "Massage",
+          "Memory foam"
+        ],
+        "material": "Genuine leather",
+        "warranty": "10 years",
+        "weightCapacity": "350 lbs"
+      },
+      "inStock": true,
+      "price_range": "luxury",
+      "discount_percentage": 0.0,
+      "search_text": "Executive Leather Chair Premium executive chair with genuine leather upholstery and advanced ergonomics. Furniture Office LuxurySeating Genuine leather upholstery Advanced lumbar support Heated and massage functions Memory foam cushioning Premium gas cylinder executive leather premium heated massage features ['Heating', 'Massage', 'Memory foam'] material Genuine leather warranty 10 years weightCapacity 350 lbs"
+    },
+    {
+      "id": "15",
+      "name": "Standing Desk Converter",
+      "price": 279.99,
+      "originalPrice": 279.99,
+      "description": "Adjustable standing desk converter that transforms any desk into a sit-stand workstation.",
+      "category": "Furniture",
+      "subcategory": "Office",
+      "brand": "ErgoDesk",
+      "image": "https://images.unsplash.com/photo-1541558869434-2840d308329a?w=500&h=300&fit=crop",
+      "features": [
+        "Height adjustable design",
+        "Dual monitor support",
+        "Keyboard tray included",
+        "Easy assembly",
+        "Stable platform design"
+      ],
+      "tags": [
+        "standing-desk",
+        "adjustable",
+        "ergonomic",
+        "converter",
+        "dual-monitor"
+      ],
+      "specifications": {
+        "dimensions": "36 x 22 inches",
+        "monitorSupport": "Dual 24-inch",
+        "weightCapacity": "33 lbs",
+        "adjustmentRange": "15 inches"
+      },
+      "inStock": true,
+      "price_range": "premium",
+      "discount_percentage": 0.0,
+      "search_text": "Standing Desk Converter Adjustable standing desk converter that transforms any desk into a sit-stand workstation. Furniture Office ErgoDesk Height adjustable design Dual monitor support Keyboard tray included Easy assembly Stable platform design standing-desk adjustable ergonomic converter dual-monitor dimensions 36 x 22 inches monitorSupport Dual 24-inch weightCapacity 33 lbs adjustmentRange 15 inches"
+    },
+    {
+      "id": "16",
+      "name": "LED Desk Lamp",
+      "price": 69.99,
+      "originalPrice": 69.99,
+      "description": "Smart LED desk lamp with adjustable brightness and color temperature.",
+      "category": "Furniture",
+      "subcategory": "Lighting",
+      "brand": "BrightWork",
+      "image": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=500&h=300&fit=crop",
+      "features": [
+        "Adjustable brightness levels",
+        "Color temperature control",
+        "USB charging port",
+        "Touch controls",
+        "Memory function"
+      ],
+      "tags": [
+        "led",
+        "desk-lamp",
+        "adjustable",
+        "usb-charging",
+        "smart"
+      ],
+      "specifications": {
+        "power": "12W LED",
+        "usbPort": "5V/1A",
+        "colorTemp": "3000K-6500K",
+        "brightness": "2000 lumens"
+      },
+      "inStock": true,
+      "price_range": "mid-range",
+      "discount_percentage": 0.0,
+      "search_text": "LED Desk Lamp Smart LED desk lamp with adjustable brightness and color temperature. Furniture Lighting BrightWork Adjustable brightness levels Color temperature control USB charging port Touch controls Memory function led desk-lamp adjustable usb-charging smart power 12W LED usbPort 5V/1A colorTemp 3000K-6500K brightness 2000 lumens"
+    },
+    {
+      "id": "17",
+      "name": "Rugged Outdoor Speaker",
+      "price": 149.99,
+      "originalPrice": 149.99,
+      "description": "Ultra-rugged Bluetooth speaker designed for extreme outdoor conditions.",
+      "category": "Electronics",
+      "subcategory": "Audio",
+      "brand": "AdventureTech",
+      "image": "https://images.unsplash.com/photo-1608043152269-423dbba4e7e1?w=500&h=300&fit=crop",
+      "features": [
+        "IP67 waterproof and dustproof",
+        "Shockproof design",
+        "40-hour battery life",
+        "Built-in power bank",
+        "360-degree sound"
+      ],
+      "tags": [
+        "rugged",
+        "outdoor",
+        "waterproof",
+        "shockproof",
+        "power-bank"
+      ],
+      "specifications": {
+        "powerBank": "Built-in USB",
+        "shockproof": "Military grade",
+        "waterproof": "IP67",
+        "batteryLife": "40 hours"
+      },
+      "inStock": true,
+      "price_range": "mid-range",
+      "discount_percentage": 0.0,
+      "search_text": "Rugged Outdoor Speaker Ultra-rugged Bluetooth speaker designed for extreme outdoor conditions. Electronics Audio AdventureTech IP67 waterproof and dustproof Shockproof design 40-hour battery life Built-in power bank 360-degree sound rugged outdoor waterproof shockproof power-bank powerBank Built-in USB shockproof Military grade waterproof IP67 batteryLife 40 hours"
+    },
+    {
+      "id": "18",
+      "name": "Compact Travel Speaker",
+      "price": 39.99,
+      "originalPrice": 59.99,
+      "description": "Ultra-compact Bluetooth speaker perfect for travel with surprising sound quality.",
+      "category": "Electronics",
+      "subcategory": "Audio",
+      "brand": "TravelSound",
+      "image": "https://images.unsplash.com/photo-1545454675-3531b543be5d?w=500&h=300&fit=crop",
+      "features": [
+        "Ultra-compact design",
+        "12-hour battery life",
+        "Water-resistant coating",
+        "Built-in microphone",
+        "Easy pairing"
+      ],
+      "tags": [
+        "compact",
+        "travel",
+        "portable",
+        "water-resistant",
+        "small"
+      ],
+      "specifications": {
+        "size": "2.5 x 2.5 x 1.5 inches",
+        "weight": "6 oz",
+        "batteryLife": "12 hours",
+        "waterResistance": "IPX4"
+      },
+      "inStock": true,
+      "price_range": "budget",
+      "discount_percentage": 33.3,
+      "search_text": "Compact Travel Speaker Ultra-compact Bluetooth speaker perfect for travel with surprising sound quality. Electronics Audio TravelSound Ultra-compact design 12-hour battery life Water-resistant coating Built-in microphone Easy pairing compact travel portable water-resistant small size 2.5 x 2.5 x 1.5 inches weight 6 oz batteryLife 12 hours waterResistance IPX4"
+    },
+    {
+      "id": "19",
+      "name": "Pan-Tilt Security Camera",
+      "price": 229.99,
+      "originalPrice": 229.99,
+      "description": "Advanced pan-tilt security camera with 4K resolution and smart tracking.",
+      "category": "Smart Home",
+      "subcategory": "Security",
+      "brand": "SecureVision",
+      "image": "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=500&h=300&fit=crop",
+      "features": [
+        "Pan and tilt functionality",
+        "4K Ultra HD recording",
+        "Auto-tracking subjects",
+        "Two-way audio",
+        "Smart motion zones"
+      ],
+      "tags": [
+        "pan-tilt",
+        "4k",
+        "auto-tracking",
+        "smart",
+        "security"
+      ],
+      "specifications": {
+        "panTilt": "355\u00b0/90\u00b0",
+        "tracking": "AI-powered",
+        "resolution": "4K Ultra HD",
+        "nightVision": "Color night vision"
+      },
+      "inStock": true,
+      "price_range": "premium",
+      "discount_percentage": 0.0,
+      "search_text": "Pan-Tilt Security Camera Advanced pan-tilt security camera with 4K resolution and smart tracking. Smart Home Security SecureVision Pan and tilt functionality 4K Ultra HD recording Auto-tracking subjects Two-way audio Smart motion zones pan-tilt 4k auto-tracking smart security panTilt 355\u00b0/90\u00b0 tracking AI-powered resolution 4K Ultra HD nightVision Color night vision"
+    },
+    {
+      "id": "20",
+      "name": "Budget Security Camera",
+      "price": 79.99,
+      "originalPrice": 99.99,
+      "description": "Affordable security camera with essential features for basic home monitoring.",
+      "category": "Smart Home",
+      "subcategory": "Security",
+      "brand": "HomeSafe",
+      "image": "https://images.unsplash.com/photo-1558618047-3c8c76ca7d13?w=500&h=300&fit=crop",
+      "features": [
+        "1080p HD recording",
+        "Night vision",
+        "Motion detection",
+        "Mobile app access",
+        "Easy installation"
+      ],
+      "tags": [
+        "budget",
+        "1080p",
+        "basic",
+        "motion-detection",
+        "easy-install"
+      ],
+      "specifications": {
+        "storage": "Cloud/SD card",
+        "resolution": "1080p HD",
+        "nightVision": "Infrared",
+        "connectivity": "Wi-Fi"
+      },
+      "inStock": true,
+      "price_range": "mid-range",
+      "discount_percentage": 20.0,
+      "search_text": "Budget Security Camera Affordable security camera with essential features for basic home monitoring. Smart Home Security HomeSafe 1080p HD recording Night vision Motion detection Mobile app access Easy installation budget 1080p basic motion-detection easy-install storage Cloud/SD card resolution 1080p HD nightVision Infrared connectivity Wi-Fi"
+    },
+    {
+      "id": "21",
+      "name": "Car Phone Mount",
+      "price": 24.99,
+      "originalPrice": 24.99,
+      "description": "Universal car phone mount with wireless charging capability.",
+      "category": "Accessories",
+      "subcategory": "Automotive",
+      "brand": "DriveEasy",
+      "image": "https://images.unsplash.com/photo-1609592193419-8e3c0c7c9b3e?w=500&h=300&fit=crop",
+      "features": [
+        "Wireless charging pad",
+        "Universal phone compatibility",
+        "360-degree rotation",
+        "Strong magnetic hold",
+        "Easy one-hand operation"
+      ],
+      "tags": [
+        "car-mount",
+        "wireless-charging",
+        "magnetic",
+        "universal",
+        "hands-free"
+      ],
+      "specifications": {
+        "charging": "10W wireless",
+        "mounting": "Dashboard/Windshield",
+        "rotation": "360 degrees",
+        "compatibility": "4-7 inch phones"
+      },
+      "inStock": true,
+      "price_range": "budget",
+      "discount_percentage": 0.0,
+      "search_text": "Car Phone Mount Universal car phone mount with wireless charging capability. Accessories Automotive DriveEasy Wireless charging pad Universal phone compatibility 360-degree rotation Strong magnetic hold Easy one-hand operation car-mount wireless-charging magnetic universal hands-free charging 10W wireless mounting Dashboard/Windshield rotation 360 degrees compatibility 4-7 inch phones"
+    },
+    {
+      "id": "22",
+      "name": "Smart Door Lock",
+      "price": 199.99,
+      "originalPrice": 199.99,
+      "description": "Smart deadbolt lock with keypad, fingerprint, and smartphone access.",
+      "category": "Smart Home",
+      "subcategory": "Security",
+      "brand": "SecureHome",
+      "image": "https://images.unsplash.com/photo-1558618047-3c8c76ca7d13?w=500&h=300&fit=crop",
+      "features": [
+        "Multiple access methods",
+        "Fingerprint recognition",
+        "Smartphone app control",
+        "Auto-lock function",
+        "Guest access codes"
+      ],
+      "tags": [
+        "smart-lock",
+        "fingerprint",
+        "keypad",
+        "smartphone",
+        "auto-lock"
+      ],
+      "specifications": {
+        "battery": "4 AA batteries",
+        "connectivity": "Bluetooth/Wi-Fi",
+        "userCapacity": "100 users",
+        "accessMethods": [
+          "Fingerprint",
+          "Keypad",
+          "App",
+          "Key"
+        ]
+      },
+      "inStock": true,
+      "price_range": "mid-range",
+      "discount_percentage": 0.0,
+      "search_text": "Smart Door Lock Smart deadbolt lock with keypad, fingerprint, and smartphone access. Smart Home Security SecureHome Multiple access methods Fingerprint recognition Smartphone app control Auto-lock function Guest access codes smart-lock fingerprint keypad smartphone auto-lock battery 4 AA batteries connectivity Bluetooth/Wi-Fi userCapacity 100 users accessMethods ['Fingerprint', 'Keypad', 'App', 'Key']"
+    },
+    {
+      "id": "23",
+      "name": "Smart Doorbell Camera",
+      "price": 149.99,
+      "originalPrice": 199.99,
+      "description": "Smart video doorbell with HD video, two-way talk, and motion detection.",
+      "category": "Smart Home",
+      "subcategory": "Security",
+      "brand": "DoorGuard",
+      "image": "https://images.unsplash.com/photo-1558618047-3c8c76ca7d13?w=500&h=300&fit=crop",
+      "features": [
+        "1080p HD video",
+        "Two-way audio communication",
+        "Motion detection alerts",
+        "Night vision capability",
+        "Cloud storage included"
+      ],
+      "tags": [
+        "doorbell",
+        "video",
+        "two-way-audio",
+        "motion-alerts",
+        "hd"
+      ],
+      "specifications": {
+        "power": "Rechargeable battery",
+        "storage": "Cloud included",
+        "resolution": "1080p HD",
+        "fieldOfView": "160 degrees"
+      },
+      "inStock": true,
+      "price_range": "mid-range",
+      "discount_percentage": 25.0,
+      "search_text": "Smart Doorbell Camera Smart video doorbell with HD video, two-way talk, and motion detection. Smart Home Security DoorGuard 1080p HD video Two-way audio communication Motion detection alerts Night vision capability Cloud storage included doorbell video two-way-audio motion-alerts hd power Rechargeable battery storage Cloud included resolution 1080p HD fieldOfView 160 degrees"
+    },
+    {
+      "id": "None",
+      "name": "UltraSharp 27\\\" 4K Monitor",
+      "price": 399.99,
+      "originalPrice": 459.99,
+      "description": "27-inch UHD monitor with IPS panel, HDR10 support, and ultra-thin bezels for immersive productivity and entertainment.",
+      "category": "Electronics",
+      "subcategory": "Monitors",
+      "brand": "ViewMax",
+      "image": "https://images.unsplash.com/photo-1612817151046-4b0b2e1b7d9e?w=500&h=300&fit=crop",
+      "features": [
+        "27-inch UHD display",
+        "IPS panel for accurate colors",
+        "HDR10 support",
+        "USB-C and HDMI connectivity",
+        "Adjustable stand with tilt & swivel"
+      ],
+      "tags": [
+        "monitor",
+        "4K",
+        "UHD",
+        "IPS",
+        "productivity",
+        "HDR"
+      ],
+      "specifications": {
+        "hdr": true,
+        "panelType": "IPS",
+        "resolution": "3840 x 2160",
+        "refreshRate": "60Hz",
+        "connectivity": "USB-C, HDMI, DisplayPort"
+      },
+      "inStock": true,
+      "price_range": "premium",
+      "discount_percentage": 13.0,
+      "search_text": "UltraSharp 27\\\" 4K Monitor 27-inch UHD monitor with IPS panel, HDR10 support, and ultra-thin bezels for immersive productivity and entertainment. Electronics Monitors ViewMax 27-inch UHD display IPS panel for accurate colors HDR10 support USB-C and HDMI connectivity Adjustable stand with tilt & swivel monitor 4K UHD IPS productivity HDR hdr True panelType IPS resolution 3840 x 2160 refreshRate 60Hz connectivity USB-C, HDMI, DisplayPort"
+    }
+  ]
+}

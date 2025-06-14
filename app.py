@@ -1,10 +1,12 @@
 import os
 import logging
-import time  # Add this missing import
+import time
 from datetime import datetime
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from typing import Optional, Dict, Any
+import threading
+import atexit
 
 from config import config
 from data_handler import DataSource
@@ -25,6 +27,33 @@ CORS(app,
      methods=['GET', 'POST', 'OPTIONS'],
      allow_headers=['Content-Type', 'Authorization', 'X-Requested-With'],
      supports_credentials=True)
+
+# Global state for warm-up
+_warm_up_complete = False
+_warm_up_thread = None
+
+def warm_up_rag_system():
+    """Warm up the RAG system in a background thread"""
+    global _warm_up_complete
+    
+    try:
+        logger.info("🚀 Starting RAG system warm-up...")
+        rag_system = get_rag_system()
+        if rag_system and rag_system.is_initialized:
+            logger.info("✅ RAG system warm-up completed successfully")
+            _warm_up_complete = True
+        else:
+            logger.error("❌ RAG system warm-up failed")
+    except Exception as e:
+        logger.error(f"❌ Error during RAG system warm-up: {e}")
+
+def start_warm_up():
+    """Start the warm-up process in a background thread"""
+    global _warm_up_thread
+    if _warm_up_thread is None or not _warm_up_thread.is_alive():
+        _warm_up_thread = threading.Thread(target=warm_up_rag_system)
+        _warm_up_thread.daemon = True
+        _warm_up_thread.start()
 
 # Request tracking middleware
 @app.before_request
@@ -61,7 +90,8 @@ def health_check():
                 "config_valid": config.validate(),
                 "system_info": {
                     "python_version": f"{os.sys.version_info.major}.{os.sys.version_info.minor}",
-                    "environment": os.getenv("ENVIRONMENT", "development")
+                    "environment": os.getenv("ENVIRONMENT", "development"),
+                    "warm_up_complete": _warm_up_complete
                 }
             })
             
@@ -89,6 +119,14 @@ def ask_question_post():
     start_time = time.time()
     
     try:
+        # Check if warm-up is complete
+        if not _warm_up_complete:
+            return jsonify({
+                "error": "System is still warming up. Please try again in a moment.",
+                "status": "warming_up",
+                "request_id": g.request_id
+            }), 503
+        
         # Validate request
         if not request.is_json:
             return jsonify({
@@ -124,7 +162,8 @@ def ask_question_post():
         result.update({
             "request_id": g.request_id,
             "timestamp": datetime.now().isoformat(),
-            "question": question
+            "question": question,
+            "response_time": time.time() - start_time
         })
         
         return jsonify(result)
@@ -345,17 +384,17 @@ def run_tests():
             "request_id": g.request_id
         }), 500
 
-# Initialize RAG system immediately when server starts - SINGLETON PATTERN
-logger.info("🚀 Initializing RAG system singleton on server startup...")
-try:
-    from assistant.enhanced_rag import get_rag_system
-    rag_system = get_rag_system()
-    if rag_system and rag_system.is_initialized:
-        logger.info("✅ RAG system singleton initialized successfully with indexed data")
-    else:
-        logger.error("❌ Failed to initialize RAG system singleton")
-except Exception as e:
-    logger.error(f"❌ Error initializing RAG system singleton on startup: {e}")
+# Initialize RAG system and start warm-up when server starts
+logger.info("🚀 Starting RAG API Server...")
+start_warm_up()
+
+# Register cleanup handler
+def cleanup():
+    """Cleanup function to be called on shutdown"""
+    logger.info("🧹 Performing cleanup on shutdown...")
+    # Add any necessary cleanup code here
+
+atexit.register(cleanup)
 
 if __name__ == '__main__':
     if not config.validate():
@@ -363,4 +402,6 @@ if __name__ == '__main__':
         exit(1)
     
     logger.info("🚀 Starting Enhanced RAG API Server with Supabase...")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # Use production-ready server with keep-alive
+    from waitress import serve
+    serve(app, host='0.0.0.0', port=5000, threads=4, connection_limit=1000)
